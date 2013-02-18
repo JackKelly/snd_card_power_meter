@@ -1,0 +1,15 @@
+.project
+.pydevproject
+*.pyc
+*.*~
+*.pkl
+*.log
+*.log.*
+data*/
+nohup.*
+*.old
+
+.pydevproject.bak
+src/
+build/
+
