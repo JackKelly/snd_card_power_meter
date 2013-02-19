@@ -29,18 +29,30 @@ Requirements
 from __future__ import print_function, division
 import numpy as np
 import alsaaudio # docs: http://pyalsaaudio.sourceforge.net/libalsaaudio.html
+import pyaudio # docs: http://people.csail.mit.edu/hubert/pyaudio/
 import wave
 import matplotlib.pyplot as plt
 import subprocess
 import sys
 import argparse
-import audioop
+import audioop # docs: http://docs.python.org/2/library/audioop.html
 
-def config_mixer():
-    print("Configuring mixer...")
+CHUNK = 1024
+FORMAT = pyaudio.paInt32
+CHANNELS = 1
+RATE = 96000
+RECORD_SECONDS = 1
+WAVE_OUTPUT_FILENAME = "output.wav"
+VOLTS_PER_ADC_STEP = 1.07688712725768E-006
+
+p = pyaudio.PyAudio()
+
+def run_command(cmd):
+    """Run a UNIX shell command.
     
-    ########## SET INPUT SOURCE ####################
-    cmd = ["amixer", "sset", "Input Source", "Rear Mic"]
+    Args:
+        cmd (list of strings)
+    """
     try:
         p = subprocess.Popen(cmd, stderr=subprocess.PIPE)
         p.wait()
@@ -53,43 +65,42 @@ def config_mixer():
         else:
             print("ERROR: Failed to run '{}'".format(" ".join(cmd)), file=sys.stderr)
             print(p.stderr.read(), file=sys.stderr)
-    
-    # SET VOLUMES
-    try:
-        capture = alsaaudio.Mixer("Capture")
-        capture.setvolume(70,0)
-        capture.setvolume(70,1)
-    except alsaaudio.ALSAAudioError, e:
-        print("ERROR:", str(e), file=sys.stderr)
 
-    try:    
-        digital = alsaaudio.Mixer("Digital")
-        digital.setvolume(44,0)
-        digital.setvolume(44,1)
-    except alsaaudio.ALSAAudioError, e:
-        print("ERROR:", str(e), file=sys.stderr)
+
+def config_mixer():
+    print("Configuring mixer...")
+    run_command(["amixer", "sset", "Input Source", "Rear Mic"])
+    run_command(["amixer", "set", "Digital", "60", "capture"])
+    run_command(["amixer", "set", "Capture", "16", "capture"])
     
 
-def process_audio():
-    inp = alsaaudio.PCM(alsaaudio.PCM_CAPTURE)
-    inp.setchannels(2)
-    print(inp.setperiodsize(512))        
-    inp.setrate(96000) # Hz
-    inp.setformat(alsaaudio.PCM_FORMAT_S24_LE) # signed 32-bit Little Endian
+def setup_audio_stream():        
+    stream = p.open(format=FORMAT,
+                    channels=CHANNELS,
+                    rate=RATE,
+                    input=True,
+                    frames_per_buffer=CHUNK)
     
-    w = wave.open('test.wav', 'w')
-    w.setnchannels(2)
-    w.setsampwidth(2)
-    w.setframerate(44100)
+    return stream
+
+
+def process_audio(stream):
+    frames = []
     
-    #while True:
-    length, data = inp.read()
-    print("length=", length)
-    a = np.fromstring(data, dtype='int32')
-    #print("{:.1f}".format(np.abs(a).mean()))
-    plt.plot(a)
-    plt.show()
-    w.writeframes(data)
+    for i in range(0, int(RATE / CHUNK * RECORD_SECONDS)):
+        data = stream.read(CHUNK)
+        frames.append(data)
+        
+    binary_string = b''.join(frames) 
+
+    matrix = np.fromstring(binary_string, dtype='int32')
+    print(audioop.rms(binary_string, p.get_sample_size(FORMAT)))
+    sys.stdout.flush()
+    #print("mean = {:4.1f}v, rms = {:4.1f}v".format(
+    #                            matrix.mean() * VOLTS_PER_ADC_STEP,
+    #                            audioop.rms(binary_string, p.get_sample_size(FORMAT)) * VOLTS_PER_ADC_STEP ))
+    # plt.plot(matrix)
+    # plt.show()
 
 
 def setup_argparser():
@@ -110,9 +121,18 @@ def main():
     
     if args.config_mixer:
         config_mixer()
+
+    stream = setup_audio_stream()
+    while True:
+        try:
+            process_audio(stream)
+        except KeyboardInterrupt:
+            stream.stop_stream()
+            stream.close()
+            p.terminate()
+            break
         
-    process_audio()
-    
+    print("")
 
 if __name__=="__main__":
     main()
