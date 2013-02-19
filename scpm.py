@@ -3,6 +3,14 @@
 """ 
 THIS CODE IS JUST ME LEARNING TO USE ALSAAUDIO.
 IT DOESN'T YET DO ANY POWER MEASUREMENT STUFF! 
+
+Requirements
+------------
+
+  pyalsaaudio (install on Ubuntu using "sudo pip install pyalsaaudio" 
+               or "sudo easy_install pyalsaaudio".  pyalsaaudio requires that
+               libasound2-dev is installed.  Install on Ubuntu using
+               "sudo apt-get install libasound2-dev")
 """
 
 # TODO:

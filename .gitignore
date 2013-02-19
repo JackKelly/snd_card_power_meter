@@ -13,3 +13,4 @@ nohup.*
 src/
 build/
 
+*.wav
