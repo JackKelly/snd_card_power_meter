@@ -16,6 +16,7 @@ Requirements
 
   On Linux, add yourself to the audio users:
      sudo adduser USERNAME audio
+     (then log out and log back in for this change to take effect)
   
 """
 
