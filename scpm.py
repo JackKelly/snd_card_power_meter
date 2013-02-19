@@ -7,15 +7,23 @@ IT DOESN'T YET DO ANY POWER MEASUREMENT STUFF!
 Requirements
 ------------
 
-  pyalsaaudio (install on Ubuntu using "sudo pip install pyalsaaudio" 
-               or "sudo easy_install pyalsaaudio".  pyalsaaudio requires that
-               libasound2-dev is installed.  Install on Ubuntu using
-               "sudo apt-get install libasound2-dev")
+  Ubuntu packages
+     sudo apt-get install python-dev python-pip alsa alsa-tools libasound2-dev
+
+  pyalsaaudio
+     * Install on Linux using "sudo pip install pyalsaaudio"
+                           or "sudo easy_install pyalsaaudio".
+
+  On Linux, add yourself to the audio users:
+     sudo adduser USERNAME audio
+  
 """
 
 # TODO:
-#  * see if wave.writeframes() does proper down-sampling
+#  * set mixer levels
 #  * do power calcs
+#  * sample at 96000, 20-bit
+#  * see if wave.writeframes() does proper down-sampling
 
 from __future__ import print_function, division
 import numpy as np
