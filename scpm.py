@@ -18,6 +18,12 @@ Requirements
      sudo adduser USERNAME audio
      (then log out and log back in for this change to take effect)
   
+Calibration with a Watts Up
+---------------------------
+
+Log data from Watts Up using
+   screen -dmL ./wattsup ttyUSB0 volts
+  
 """
 
 # TODO:
@@ -43,7 +49,8 @@ CHANNELS = 1
 RATE = 96000
 RECORD_SECONDS = 1
 WAVE_OUTPUT_FILENAME = "output.wav"
-VOLTS_PER_ADC_STEP = 1.07688712725768E-006
+VOLTS_PER_ADC_STEP = 1.07731983340487E-06
+
 
 p = pyaudio.PyAudio()
 
@@ -88,17 +95,22 @@ def process_audio(stream):
     frames = []
     
     for i in range(0, int(RATE / CHUNK * RECORD_SECONDS)):
-        data = stream.read(CHUNK)
-        frames.append(data)
+        try:
+            data = stream.read(CHUNK)
+        except IOError, e:
+            print("ERROR: ", str(e), file=sys.stderr)
+            # TODO: should we do i-=1 ?
+        else:
+            frames.append(data)
         
     binary_string = b''.join(frames) 
 
     matrix = np.fromstring(binary_string, dtype='int32')
     print(audioop.rms(binary_string, p.get_sample_size(FORMAT)))
     sys.stdout.flush()
-    #print("mean = {:4.1f}v, rms = {:4.1f}v".format(
-    #                            matrix.mean() * VOLTS_PER_ADC_STEP,
-    #                            audioop.rms(binary_string, p.get_sample_size(FORMAT)) * VOLTS_PER_ADC_STEP ))
+    print("mean = {:4.1f}v, rms = {:4.1f}v".format(
+                                matrix.mean() * VOLTS_PER_ADC_STEP,
+                                audioop.rms(binary_string, p.get_sample_size(FORMAT)) * VOLTS_PER_ADC_STEP ))
     # plt.plot(matrix)
     # plt.show()
 
