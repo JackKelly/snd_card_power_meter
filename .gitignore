@@ -6,6 +6,7 @@
 *.log
 *.log.*
 data*/
+data.*
 nohup.*
 *.old
 
