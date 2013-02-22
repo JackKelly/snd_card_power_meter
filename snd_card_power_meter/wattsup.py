@@ -10,7 +10,7 @@ Requirements:
 
 Usage:
     wu = WattsUp() # connect to WattsUp meter
-    data = wu.get_data() # non-blocking
+    data = wu.get_data_nowait() # non-blocking
     print(data)
 
 WULine(time=time.struct_time(tm_year=2013, tm_mon=2, tm_mday=22, 
@@ -43,7 +43,7 @@ WULine = collections.namedtuple('WULine', ['time', 'volts', 'amps'])
 class WattsUp(object):
     """Connects to a WattsUp meter over USB.  Instantiates a separate thread
     to read data from the WattsUp and places this data into a queue.
-    Lines of data can be read in a non-blocking fashion using get_data.
+    Lines of data can be read in a non-blocking fashion using get_data_nowait.
     
     Attributes:
         _p (subprocess.Popen): process
@@ -60,7 +60,7 @@ class WattsUp(object):
         self._t.daemon = True # thread dies with the program
         self._t.start()
         
-    def get_data(self):
+    def get_data_nowait(self):
         """
         Non-blocking.
         
@@ -101,6 +101,16 @@ class WattsUp(object):
             amps = float(line[2])
             
             return WULine(t, volts, amps)
+        
+    def get_last_nowait(self):
+        """Return the last (most recent) item on the queue."""
+        prev_data = self.get_data_nowait()        
+        while True:
+            data = self.get_data_nowait()
+            if data is None:
+                return prev_data
+            else:
+                prev_data = data
 
     def __del__(self):
         self._p.terminate()

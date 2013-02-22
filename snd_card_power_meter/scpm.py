@@ -41,6 +41,16 @@ import subprocess
 import sys
 import argparse
 import audioop # docs: http://docs.python.org/2/library/audioop.html
+import time
+import wattsup
+import collections
+from threading import Thread
+
+try:
+    from Queue import Queue, Empty
+except ImportError:
+    from queue import Queue, Empty # python 3.x
+
 
 CHUNK = 1024
 FORMAT = pyaudio.paInt32
@@ -48,10 +58,16 @@ CHANNELS = 2
 RATE = 96000
 RECORD_SECONDS = 1
 WAVE_OUTPUT_FILENAME = "output.wav"
-VOLTS_PER_ADC_STEP = 1.07731983340487E-06
-
+# VOLTS_PER_ADC_STEP = 1.07731983340487E-06
+VOLTS_PER_ADC_STEP = 1.08181933163E-04
 
 p = pyaudio.PyAudio()
+audio_stream = p.open(format=FORMAT, channels=CHANNELS, rate=RATE,
+                      input=True, frames_per_buffer=CHUNK)
+
+
+# Named tuple for storing volts and amps
+VA = collections.namedtuple('VA', ['time', 'volts', 'amps'])
 
 def run_command(cmd):
     """Run a UNIX shell command.
@@ -80,38 +96,72 @@ def config_mixer():
     run_command(["amixer", "set", "Capture", "16", "capture"])
     
 
-def setup_audio_stream():        
-    stream = p.open(format=FORMAT,
-                    channels=CHANNELS,
-                    rate=RATE,
-                    input=True,
-                    frames_per_buffer=CHUNK)
-    
-    return stream
-
-
-def process_audio(stream):
+def get_raw_data():
+    """
+    Returns:
+        A byte string.
+    """
+    t = time.time()
     frames = []
-    
     for i in range(0, int(RATE / CHUNK * RECORD_SECONDS)):
         try:
-            data = stream.read(CHUNK)
+            data = audio_stream.read(CHUNK)
         except IOError, e:
             print("ERROR: ", str(e), file=sys.stderr)
             # TODO: should we do i-=1 ?
         else:
             frames.append(data)
-        
-    binary_string = b''.join(frames) 
 
-    matrix = np.fromstring(binary_string, dtype='int32')
-    print(audioop.rms(binary_string, p.get_sample_size(FORMAT)))
+    stereo = b''.join(frames)
+    width = p.get_sample_size(FORMAT)
+    volts = audioop.tomono(stereo, width, 0, 1)
+    amps = audioop.tomono(stereo, width, 1, 0)
+    return VA(t, volts, amps)
+
+
+def enqueue_raw_data(queue):
+    """This will be run as a separate thread""" 
+    while True:
+        queue.put(get_raw_data())
+
+
+def record_data(queue):
+    raw_data = queue.get()
+    np_data = np.fromstring(raw_data.volts, dtype='int32')
+    print(audioop.rms(raw_data.volts, p.get_sample_size(FORMAT)))
     sys.stdout.flush()
     print("mean = {:4.1f}v, rms = {:4.1f}v".format(
-                                matrix.mean() * VOLTS_PER_ADC_STEP,
-                                audioop.rms(binary_string, p.get_sample_size(FORMAT)) * VOLTS_PER_ADC_STEP ))
-    plt.plot(matrix)
-    plt.show()
+                                np_data.mean() * VOLTS_PER_ADC_STEP,
+                                audioop.rms(raw_data.volts, p.get_sample_size(FORMAT)) * VOLTS_PER_ADC_STEP ))
+    # plt.plot(np_data)
+    # plt.show()
+    
+    
+def calibrate(queue):
+    wu = wattsup.WattsUp()
+    
+    v_acumulator = 0.0 # accumulator for voltage
+    n_v_samples = 0 # number of voltage samples
+    
+    while True:
+        raw_data = queue.get()
+        raw_v_rms = audioop.rms(raw_data.volts, p.get_sample_size(FORMAT))
+        
+        wu_data = wu.get_last_nowait()
+        if wu_data:
+            n_v_samples += 1
+            v_acumulator += wu_data.volts / raw_v_rms
+            av_v_calibration = v_acumulator / n_v_samples # average voltage calibration
+            print("WattsUp Volts = {}, WattsUp amps = {}, v_calibration = {}"
+                  .format(wu_data.volts, wu_data.amps, av_v_calibration))
+            print("volts = {}".format( raw_v_rms * av_v_calibration))
+            
+        # TODO:
+        #   check that raw_data.time and wu_data.time are similar.  What happen
+        #      if wu.get_last_nowait() falls over for a while and gives us nothing?
+        #      then we'll be reading old data from raw_data = queue.get()
+        #   write this to disk
+        #   to calcs for amps
 
 
 def setup_argparser():
@@ -123,6 +173,10 @@ def setup_argparser():
                         action="store_false",
                         help="Don't modify ALSA mixer (i.e. use existing system settings)")
     
+    parser.add_argument("--calibrate", 
+                        action="store_true",
+                        help="Run calibration using a WattsUp meter")
+    
     args = parser.parse_args()
 
     return args
@@ -133,16 +187,22 @@ def main():
     if args.config_mixer:
         config_mixer()
 
-    stream = setup_audio_stream()
-    while True:
-        try:
-            process_audio(stream)
-            break
-        except KeyboardInterrupt:
-            stream.stop_stream()
-            stream.close()
-            p.terminate()
-            break
+    q = Queue()
+    t = Thread(target=enqueue_raw_data, args=(q, ))
+    t.daemon = True # this thread dies with the program
+    t.start()
+
+    if args.calibrate:
+        calibrate(q)
+    else:
+        while True:
+            try:
+                record_data(q)
+            except KeyboardInterrupt:
+                audio_stream.stop_stream()
+                audio_stream.close()
+                p.terminate()
+                break
         
     print("")
 
