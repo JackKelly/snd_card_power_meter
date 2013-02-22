@@ -34,7 +34,6 @@ Log data from Watts Up using
 
 from __future__ import print_function, division
 import numpy as np
-import alsaaudio # docs: http://pyalsaaudio.sourceforge.net/libalsaaudio.html
 import pyaudio # docs: http://people.csail.mit.edu/hubert/pyaudio/
 import wave
 import matplotlib.pyplot as plt
@@ -45,7 +44,7 @@ import audioop # docs: http://docs.python.org/2/library/audioop.html
 
 CHUNK = 1024
 FORMAT = pyaudio.paInt32
-CHANNELS = 1
+CHANNELS = 2
 RATE = 96000
 RECORD_SECONDS = 1
 WAVE_OUTPUT_FILENAME = "output.wav"
@@ -111,8 +110,8 @@ def process_audio(stream):
     print("mean = {:4.1f}v, rms = {:4.1f}v".format(
                                 matrix.mean() * VOLTS_PER_ADC_STEP,
                                 audioop.rms(binary_string, p.get_sample_size(FORMAT)) * VOLTS_PER_ADC_STEP ))
-    # plt.plot(matrix)
-    # plt.show()
+    plt.plot(matrix)
+    plt.show()
 
 
 def setup_argparser():
@@ -138,6 +137,7 @@ def main():
     while True:
         try:
             process_audio(stream)
+            break
         except KeyboardInterrupt:
             stream.stop_stream()
             stream.close()
