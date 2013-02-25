@@ -109,6 +109,7 @@ class WattsUp(object):
         
     def _check_abort(self):
         if self._abort.is_set():
+            print("QUIT", file=sys.stderr)
             sys.exit(1)
         
     def get(self):

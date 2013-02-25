@@ -21,16 +21,18 @@ Requirements
 Calibration with a Watts Up
 ---------------------------
 
+NEW CALIBRATION TECHNIQUE:
+    Plug in a WattsUp
+        run ./scpm --calibrate
+    This will update (or create) a config.cfg file with the calibration
+    parameters.
+
+OLD CALIBRATION TECHNIQUE:
+
 Log data from Watts Up using
    screen -dmL ./wattsup ttyUSB0 volts
   
 """
-
-# TODO:
-#  * set mixer levels
-#  * do power calcs
-#  * sample at 96000, 20-bit
-#  * see if wave.writeframes() does proper down-sampling
 
 from __future__ import print_function, division
 import numpy as np
@@ -44,12 +46,23 @@ import audioop # docs: http://docs.python.org/2/library/audioop.html
 import time
 import wattsup
 import collections
+import os
+import ConfigParser # docs: http://docs.python.org/2/library/configparser.html
 from threading import Thread
 
 try:
     from Queue import Queue, Empty
 except ImportError:
     from queue import Queue, Empty # python 3.x
+
+# Load configuration file
+CONFIG_FILE = os.path.dirname(__file__) + "/../config.cfg"
+config = ConfigParser.RawConfigParser()
+config.read(CONFIG_FILE)
+try:
+    config.add_section("Calibration")
+except ConfigParser.DuplicateSectionError:
+    pass
 
 
 CHUNK = 1024
@@ -59,7 +72,8 @@ RATE = 96000
 RECORD_SECONDS = 1
 WAVE_OUTPUT_FILENAME = "output.wav"
 # VOLTS_PER_ADC_STEP = 1.07731983340487E-06
-VOLTS_PER_ADC_STEP = 1.08181933163E-04
+# VOLTS_PER_ADC_STEP = 1.08181933163E-04
+VOLTS_PER_ADC_STEP = config.getfloat("Calibration", "volts_per_adc_step")
 
 p = pyaudio.PyAudio()
 audio_stream = p.open(format=FORMAT, channels=CHANNELS, rate=RATE,
@@ -157,47 +171,52 @@ def find_time(adc_data_queue, target_time):
         target_time (int): UNIX timestamp
     """
     t = 0
+    target_time = int(round(target_time))
     while t < target_time:
         adc_data = None                    
         try:
             adc_data = adc_data_queue.get_nowait()
         except Empty:
             return None
-        else:
+        else:            
             t = int(round(adc_data.time))
+            print("Read", t)
     
     if t == target_time:
         return adc_data
     else:
         return None
 
-def calibrate(adc_data_queue):
+def calibrate(adc_data_queue):    
     wu = wattsup.WattsUp()
-    
     v_acumulator = 0.0 # accumulator for voltage
-    n_v_samples = 0 # number of voltage samples
+    n_samples = 0 # number of samples
     
     while True:
-        adc_data = adc_data_queue.get() # blocks if queue is empty
-        adc_v_rms = audioop.rms(adc_data.volts, p.get_sample_size(FORMAT))
+        wu_data = wu.get() # blocking
         
-        wu_data = wu.get() # blocks
-        if wu_data:
-            n_v_samples += 1
+        # Now get ADC data recorded at wu_data.time
+        adc_data = find_time(adc_data_queue, wu_data.time)
+        
+        if adc_data:
+            adc_v_rms = audioop.rms(adc_data.volts, p.get_sample_size(FORMAT))            
+            n_samples += 1
             v_acumulator += wu_data.volts / adc_v_rms
-            av_v_calibration = v_acumulator / n_v_samples # average voltage calibration
+            av_v_calibration = v_acumulator / n_samples # average voltage calibration
             print("WattsUp Volts = {}, WattsUp amps = {}, v_calibration = {}\n"
                   ", adc_data.time = {}, wu_data.time = {}, diff = {}"
                   .format(wu_data.volts, wu_data.amps, av_v_calibration,
                           adc_data.time, wu_data.time, adc_data.time - wu_data.time))
             print("volts = {}".format( adc_v_rms * av_v_calibration))
+            config.set("Calibration", "volts_per_adc_step", av_v_calibration)
+            with open(CONFIG_FILE, "wb") as configfile:
+                config.write(configfile)
+                    
+        else:
+            print("Could not find match for", wu_data.time, file=sys.stderr)
             
         # TODO:
-        #   check that adc_data.time and wu_data.time are similar.  What happen
-        #      if wu.get_last_nowait() falls over for a while and gives us nothing?
-        #      then we'll be reading old data from adc_data = queue.get()
-        #   write this to disk
-        #   do calcs for amps
+        #  * do calcs for amps        
 
 
 def setup_argparser():
