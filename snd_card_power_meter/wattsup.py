@@ -17,10 +17,9 @@ WULine(time=1361803002.0, volts=230.1, amps=2.4)
 
 """
 
-from __future__ import print_function
+from __future__ import print_function, division
 import subprocess, shlex, sys, time, collections
 from threading import Thread, Event
-import sys
 
 try:
     from Queue import Queue, Empty
@@ -77,7 +76,7 @@ def _line_to_tuple(line):
     volts = float(line[1].strip(','))
     
     # Process current (third column)
-    amps = float(line[2])
+    amps = float(line[2]) / 100
     
     return WULine(t, volts, amps)
 

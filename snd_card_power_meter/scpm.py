@@ -38,7 +38,6 @@ from __future__ import print_function, division
 import numpy as np
 import pyaudio # docs: http://people.csail.mit.edu/hubert/pyaudio/
 import wave
-import matplotlib.pyplot as plt
 import subprocess
 import sys
 import argparse
@@ -74,6 +73,7 @@ WAVE_OUTPUT_FILENAME = "output.wav"
 # VOLTS_PER_ADC_STEP = 1.07731983340487E-06
 # VOLTS_PER_ADC_STEP = 1.08181933163E-04
 VOLTS_PER_ADC_STEP = config.getfloat("Calibration", "volts_per_adc_step")
+AMPS_PER_ADC_STEP = config.getfloat("Calibration", "amps_per_adc_step")
 
 p = pyaudio.PyAudio()
 audio_stream = p.open(format=FORMAT, channels=CHANNELS, rate=RATE,
@@ -133,8 +133,8 @@ def get_adc_data():
 
     stereo = b''.join(frames)
     width = p.get_sample_size(FORMAT)
-    volts = audioop.tomono(stereo, width, 0, 1)
-    amps = audioop.tomono(stereo, width, 1, 0)
+    volts = audioop.tomono(stereo, width, 1, 0)
+    amps = audioop.tomono(stereo, width, 0, 1)
     return VA(t, volts, amps)
 
 
@@ -152,8 +152,25 @@ def record_data(adc_data_queue):
     print("mean = {:4.1f}v, rms = {:4.1f}v".format(
                                 np_data.mean() * VOLTS_PER_ADC_STEP,
                                 audioop.rms(adc_data.volts, p.get_sample_size(FORMAT)) * VOLTS_PER_ADC_STEP ))
-    # plt.plot(np_data)
-    # plt.show()
+
+def plot(adc_data_queue):
+    import matplotlib.pyplot as plt
+    
+    adc_data = adc_data_queue.get()
+    np_data = np.fromstring(adc_data.volts, dtype='int32')
+    if VOLTS_PER_ADC_STEP:
+        unit = "v"
+        np_data *= VOLTS_PER_ADC_STEP
+    else:
+        unit = "ADC steps"
+    sys.stdout.flush()
+    print("mean = {:4.1f}{:s}, rms = {:4.1f}{:s}"
+          .format(np_data.mean(), unit,
+                  audioop.rms(adc_data.volts, p.get_sample_size(FORMAT)) 
+                              * VOLTS_PER_ADC_STEP, unit))
+    
+    plt.plot(np_data)
+    plt.show()
     
 def find_time(adc_data_queue, target_time):
     """
@@ -189,8 +206,13 @@ def find_time(adc_data_queue, target_time):
 
 def calibrate(adc_data_queue):    
     wu = wattsup.WattsUp()
+    
     v_acumulator = 0.0 # accumulator for voltage
-    n_samples = 0 # number of samples
+    i_acumulator = 0.0 # accumulator for current
+    n_v_samples = 0 # number of voltage samples
+    n_i_samples = 0 # number of current samples
+    av_i_calibration = 0.0
+    adc_i_rms = 0.0
     
     while True:
         wu_data = wu.get() # blocking
@@ -199,21 +221,37 @@ def calibrate(adc_data_queue):
         adc_data = find_time(adc_data_queue, wu_data.time)
         
         if adc_data:
-            adc_v_rms = audioop.rms(adc_data.volts, p.get_sample_size(FORMAT))            
-            n_samples += 1
+            # Voltage
+            adc_v_rms = audioop.rms(adc_data.volts, p.get_sample_size(FORMAT)) 
+            n_v_samples += 1
             v_acumulator += wu_data.volts / adc_v_rms
-            av_v_calibration = v_acumulator / n_samples # average voltage calibration
-            print("WattsUp Volts = {}, WattsUp amps = {}, v_calibration = {}\n"
-                  ", adc_data.time = {}, wu_data.time = {}, diff = {}"
-                  .format(wu_data.volts, wu_data.amps, av_v_calibration,
+            av_v_calibration = v_acumulator / n_v_samples # average voltage calibration
+            
+            # Current
+            if wu_data.amps > 0.1:
+                adc_i_rms = audioop.rms(adc_data.amps, p.get_sample_size(FORMAT))
+                n_i_samples += 1 
+                i_acumulator += wu_data.amps / adc_i_rms
+                av_i_calibration = i_acumulator / n_v_samples # average voltage calibration
+            else:
+                print("Not sampling amps because the WattsUp reading is too low.")    
+            
+            print("WattsUp Volts = {}, WattsUp amps = {}, \n"
+                  "v_calibration = {}, i_calibration = {}, \n"
+                  "adc_data.time = {}, wu_data.time = {}, time diff = {:1.3f}s"
+                  .format(wu_data.volts, wu_data.amps,
+                          av_v_calibration, av_i_calibration,
                           adc_data.time, wu_data.time, adc_data.time - wu_data.time))
-            print("volts = {}".format( adc_v_rms * av_v_calibration))
+            print("Calculated volts = {}, amps = {}"
+                  .format(adc_v_rms * av_v_calibration,
+                          adc_i_rms * av_i_calibration))
             config.set("Calibration", "volts_per_adc_step", av_v_calibration)
+            config.set("Calibration", "amps_per_adc_step", av_i_calibration)
             with open(CONFIG_FILE, "wb") as configfile:
                 config.write(configfile)
-                    
         else:
             print("Could not find match for", wu_data.time, file=sys.stderr)
+            time.sleep(RECORD_SECONDS)
             
         # TODO:
         #  * do calcs for amps        
@@ -231,6 +269,11 @@ def setup_argparser():
     parser.add_argument("--calibrate", 
                         action="store_true",
                         help="Run calibration using a WattsUp meter")
+    
+    parser.add_argument("--plot", 
+                    action="store_true",
+                    help="Plot one second's worth of data")
+
     
     args = parser.parse_args()
 
@@ -255,6 +298,8 @@ def main():
 
     if args.calibrate:
         calibrate(adc_data_queue)
+    elif args.plot:
+        plot(adc_data_queue)
     else:
         while True:
             try:
