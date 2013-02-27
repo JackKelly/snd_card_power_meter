@@ -157,19 +157,31 @@ def plot(adc_data_queue):
     import matplotlib.pyplot as plt
     
     adc_data = adc_data_queue.get()
-    np_data = np.fromstring(adc_data.volts, dtype='int32')
-    if VOLTS_PER_ADC_STEP:
-        unit = "v"
-        np_data *= VOLTS_PER_ADC_STEP
-    else:
-        unit = "ADC steps"
-    sys.stdout.flush()
-    print("mean = {:4.1f}{:s}, rms = {:4.1f}{:s}"
-          .format(np_data.mean(), unit,
-                  audioop.rms(adc_data.volts, p.get_sample_size(FORMAT)) 
-                              * VOLTS_PER_ADC_STEP, unit))
+    volts = np.fromstring(adc_data.volts, dtype='int32')
+    amps = np.fromstring(adc_data.amps, dtype='int32')
     
-    plt.plot(np_data)
+    
+    if VOLTS_PER_ADC_STEP:
+        print("VOLS_PER_ADC_STEP =", VOLTS_PER_ADC_STEP)        
+        v_unit = "v"
+        volts *= VOLTS_PER_ADC_STEP # FIXME: INTEGER MULTIPLICATION!
+    else:
+        v_unit = "ADC steps"
+        
+    if AMPS_PER_ADC_STEP:
+        print("AMPS_PER_ADC_STEP =", AMPS_PER_ADC_STEP)
+        i_unit = "A"
+        amps *= AMPS_PER_ADC_STEP # FIXME: INTEGER MULTIPLICATION!
+    else:
+        i_unit = "ADC steps"
+        
+    print("mean = {:4.1f}{:s}, rms = {:4.1f}{:s}"
+          .format(volts.mean(), v_unit,
+                  audioop.rms(adc_data.volts, p.get_sample_size(FORMAT)) 
+                              * VOLTS_PER_ADC_STEP, v_unit))
+    
+    # plt.plot(volts)
+    plt.plot(amps)
     plt.show()
     
 def find_time(adc_data_queue, target_time):
