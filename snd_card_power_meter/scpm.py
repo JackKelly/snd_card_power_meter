@@ -69,19 +69,19 @@ FORMAT = pyaudio.paInt32
 CHANNELS = 2
 RATE = 96000
 RECORD_SECONDS = 1
-WAVE_OUTPUT_FILENAME = "output.wav"
-# VOLTS_PER_ADC_STEP = 1.07731983340487E-06
-# VOLTS_PER_ADC_STEP = 1.08181933163E-04
+
 VOLTS_PER_ADC_STEP = config.getfloat("Calibration", "volts_per_adc_step")
 AMPS_PER_ADC_STEP = config.getfloat("Calibration", "amps_per_adc_step")
+if VOLTS_PER_ADC_STEP and AMPS_PER_ADC_STEP:
+    WATTS_PER_ADC_STEP = VOLTS_PER_ADC_STEP * AMPS_PER_ADC_STEP
 
 p = pyaudio.PyAudio()
 audio_stream = p.open(format=FORMAT, channels=CHANNELS, rate=RATE,
                       input=True, frames_per_buffer=CHUNK)
 
 
-# Named tuple for storing volts and amps
-VA = collections.namedtuple('VA', ['time', 'volts', 'amps'])
+# Named tuple for storing voltage and current
+VA = collections.namedtuple('VA', ['time', 'voltage', 'current'])
 
 def run_command(cmd):
     """Run a UNIX shell command.
@@ -117,8 +117,8 @@ def get_adc_data():
     Returns:
         A named tuple with fields:
         - t (float): UNIX timestamp immediately prior to sampling
-        - volts (binary string): raw ADC data 
-        - amps (binary string): see 'volts'
+        - voltage (binary string): raw ADC data 
+        - current (binary string): see 'voltage'
     """
     t = time.time()
     frames = []
@@ -133,9 +133,9 @@ def get_adc_data():
 
     stereo = b''.join(frames)
     width = p.get_sample_size(FORMAT)
-    volts = audioop.tomono(stereo, width, 1, 0)
-    amps = audioop.tomono(stereo, width, 0, 1)
-    return VA(t, volts, amps)
+    voltage = audioop.tomono(stereo, width, 1, 0)
+    current = audioop.tomono(stereo, width, 0, 1)
+    return VA(t, voltage, current)
 
 
 def enqueue_adc_data(adc_data_queue):
@@ -144,44 +144,91 @@ def enqueue_adc_data(adc_data_queue):
         adc_data_queue.put(get_adc_data())
 
 
+def convert_adc_to_numpy_float(adc_data):
+    # Convert from binary string to numpy array
+    voltage = np.fromstring(adc_data.voltage, dtype='int32')
+    current = np.fromstring(adc_data.current, dtype='int32')
+    
+    # Cast to floating point so the multiplications below work correctly
+    voltage = np.array(voltage, dtype='float')
+    current = np.array(current, dtype='float')
+    
+    return voltage, current    
+
+
 def record_data(adc_data_queue):
     adc_data = adc_data_queue.get()
-    np_data = np.fromstring(adc_data.volts, dtype='int32')
-    print(audioop.rms(adc_data.volts, p.get_sample_size(FORMAT)))
-    sys.stdout.flush()
-    print("mean = {:4.1f}v, rms = {:4.1f}v".format(
-                                np_data.mean() * VOLTS_PER_ADC_STEP,
-                                audioop.rms(adc_data.volts, p.get_sample_size(FORMAT)) * VOLTS_PER_ADC_STEP ))
+    voltage, current = convert_adc_to_numpy_float(adc_data)
+    
+    inst_power = voltage * current # instantaneous power
+    real_power = inst_power.mean() * WATTS_PER_ADC_STEP
+    
+    v_rms = audioop.rms(adc_data.voltage, p.get_sample_size(FORMAT))
+    i_rms = audioop.rms(adc_data.current, p.get_sample_size(FORMAT))
+    apparent_power = v_rms * i_rms * WATTS_PER_ADC_STEP
+    
+    power_factor = real_power / apparent_power
+    
+    # TODO: leading / lagging phase
+    
+    print("real power = {:4.2f}W, apparent_power = {:4.2f}VA, "
+          "power factor = {:1.3f}, v_rms = {:4.2f}V, i_rms = {:4.2f}A"
+          .format(real_power, apparent_power, power_factor,
+                  v_rms * VOLTS_PER_ADC_STEP, i_rms * AMPS_PER_ADC_STEP))
+
 
 def plot(adc_data_queue):
     import matplotlib.pyplot as plt
     
     adc_data = adc_data_queue.get()
-    volts = np.fromstring(adc_data.volts, dtype='int32')
-    amps = np.fromstring(adc_data.amps, dtype='int32')
-    
+    voltage, current = convert_adc_to_numpy_float(adc_data)
     
     if VOLTS_PER_ADC_STEP:
         print("VOLS_PER_ADC_STEP =", VOLTS_PER_ADC_STEP)        
         v_unit = "v"
-        volts *= VOLTS_PER_ADC_STEP # FIXME: INTEGER MULTIPLICATION!
+        voltage *= VOLTS_PER_ADC_STEP
     else:
         v_unit = "ADC steps"
         
     if AMPS_PER_ADC_STEP:
         print("AMPS_PER_ADC_STEP =", AMPS_PER_ADC_STEP)
         i_unit = "A"
-        amps *= AMPS_PER_ADC_STEP # FIXME: INTEGER MULTIPLICATION!
+        current *= AMPS_PER_ADC_STEP
     else:
         i_unit = "ADC steps"
         
-    print("mean = {:4.1f}{:s}, rms = {:4.1f}{:s}"
-          .format(volts.mean(), v_unit,
-                  audioop.rms(adc_data.volts, p.get_sample_size(FORMAT)) 
+    print("VOLTAGE: mean = {:3.3f}{:s}, rms = {:3.3f}{:s}"
+          .format(voltage.mean(), v_unit,
+                  audioop.rms(adc_data.voltage, p.get_sample_size(FORMAT)) 
                               * VOLTS_PER_ADC_STEP, v_unit))
+
+    print("CURRENT: mean = {:3.3f}{:s}, rms = {:3.3f}{:s}"
+          .format(current.mean(), i_unit,
+                  audioop.rms(adc_data.current, p.get_sample_size(FORMAT)) 
+                              * AMPS_PER_ADC_STEP, i_unit))
+
+    # two scales code adapted from matplotlib.org/examples/api/two_scales.html
+    fig = plt.figure()
+    v_ax = fig.add_subplot(111) # v_ax = voltage axes
+    v_ax.plot(voltage, "b-")
+    v_ax.set_xlabel("time")
     
-    # plt.plot(volts)
-    plt.plot(amps)
+    # Make the y-axis label and tick labels match the line colour.
+    v_ax.set_ylabel("potential different ({:s})".format(v_unit), color="b")
+    for tl in v_ax.get_yticklabels():
+        tl.set_color("b")
+    
+    # The function twinx() give us access to a second plot that
+    # overlays the graph ax2 and shares the same X axis, but not the Y axis.     
+    i_ax = v_ax.twinx()
+    i_ax.plot(current, "g-")
+    i_ax.set_ylabel("current ({:s})".format(i_unit), color="g")
+    for tl in i_ax.get_yticklabels():
+        tl.set_color("g")
+    
+    
+    # TODO: label the x axis with miliseconds
+    plt.grid(5)
     plt.show()
     
 def find_time(adc_data_queue, target_time):
@@ -234,14 +281,14 @@ def calibrate(adc_data_queue):
         
         if adc_data:
             # Voltage
-            adc_v_rms = audioop.rms(adc_data.volts, p.get_sample_size(FORMAT)) 
+            adc_v_rms = audioop.rms(adc_data.voltage, p.get_sample_size(FORMAT)) 
             n_v_samples += 1
             v_acumulator += wu_data.volts / adc_v_rms
             av_v_calibration = v_acumulator / n_v_samples # average voltage calibration
             
             # Current
             if wu_data.amps > 0.1:
-                adc_i_rms = audioop.rms(adc_data.amps, p.get_sample_size(FORMAT))
+                adc_i_rms = audioop.rms(adc_data.current, p.get_sample_size(FORMAT))
                 n_i_samples += 1 
                 i_acumulator += wu_data.amps / adc_i_rms
                 av_i_calibration = i_acumulator / n_v_samples # average voltage calibration
@@ -263,7 +310,7 @@ def calibrate(adc_data_queue):
                 config.write(configfile)
         else:
             print("Could not find match for", wu_data.time, file=sys.stderr)
-            time.sleep(RECORD_SECONDS)
+            time.sleep(RECORD_SECONDS*2)
             
         # TODO:
         #  * do calcs for amps        

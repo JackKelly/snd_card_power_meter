@@ -15,3 +15,4 @@ src/
 build/
 
 *.wav
+config.cfg
