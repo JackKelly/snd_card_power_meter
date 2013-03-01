@@ -44,14 +44,17 @@ def enqueue_output(stdout, stderr, queue, abort_event):
             abort_event.set()
         
     stdout.close()
+    stderr.close()
 
 # Create a named tuple for storing time, volts and amps
 # WULine = "Watts Up Line"
-WULine = collections.namedtuple('WULine', ['time', 'volts', 'amps'])
+WULine = collections.namedtuple('WULine', ['time', 'volts', 'amps', 'power_factor'])
 
 def _line_to_tuple(line):
     """Convert a line of text from the Watts Up to a WULine named tuple."""
     line = line.split()
+    for i in range(len(line)):
+        line[i] = line[i].strip(',')
     
     # Process time (first column)
     try:
@@ -73,12 +76,15 @@ def _line_to_tuple(line):
     t = time.mktime(t) # convert time struct to UNIX timestamp float.
     
     # Process volts (second column)
-    volts = float(line[1].strip(','))
+    volts = float(line[1])
     
     # Process current (third column)
     amps = float(line[2]) / 100
     
-    return WULine(t, volts, amps)
+    # Power factor (fourth column)
+    pf = float(line[3]) / 10
+    
+    return WULine(t, volts, amps, pf)
 
 class WattsUp(object):
     """Connects to a WattsUp meter over USB.  Instantiates a separate thread
@@ -93,7 +99,7 @@ class WattsUp(object):
     """
     def __init__(self):
         ON_POSIX = 'posix' in sys.builtin_module_names
-        cmd = "wattsup -t ttyUSB0 volts amps"
+        cmd = "wattsup -t ttyUSB0 volts amps power-factor"
         self._abort = Event()
         self._p = subprocess.Popen(shlex.split(cmd), stdout=subprocess.PIPE,
                                    stderr=subprocess.PIPE,
@@ -115,6 +121,7 @@ class WattsUp(object):
         """Blocking"""
         self._check_abort()
         line = self._q.get()
+        self._check_abort()
         return _line_to_tuple(line)
         
     def get_nowait(self):

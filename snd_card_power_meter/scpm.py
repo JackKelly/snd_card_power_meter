@@ -55,25 +55,40 @@ except ImportError:
     from queue import Queue, Empty # python 3.x
 
 # Load configuration file
-CONFIG_FILE = os.path.dirname(__file__) + "/../config.cfg"
-config = ConfigParser.RawConfigParser()
-config.read(CONFIG_FILE)
-try:
-    config.add_section("Calibration")
-except ConfigParser.DuplicateSectionError:
-    pass
+config = None
+VOLTS_PER_ADC_STEP = None
+AMPS_PER_ADC_STEP = None
+PHASE_DIFF = None
 
+try:
+    CONFIG_FILE = os.path.dirname(__file__) + "/../config.cfg"
+except NameError:
+    # If we load this script from an interactive Python interpreter for
+    # testing then __file__ won't evaluate correctly.
+    pass
+else:
+    config = ConfigParser.RawConfigParser()
+    config.read(CONFIG_FILE)
+    try:
+        config.add_section("Calibration")
+    except ConfigParser.DuplicateSectionError:
+        try:
+            VOLTS_PER_ADC_STEP = config.getfloat("Calibration", "volts_per_adc_step")
+            AMPS_PER_ADC_STEP = config.getfloat("Calibration", "amps_per_adc_step")
+            PHASE_DIFF = config.getfloat("Calibration", "phase_difference")
+        except ConfigParser.NoOptionError:
+            pass
+
+if VOLTS_PER_ADC_STEP and AMPS_PER_ADC_STEP:
+    WATTS_PER_ADC_STEP = VOLTS_PER_ADC_STEP * AMPS_PER_ADC_STEP
+else:
+    WATTS_PER_ADC_STEP = None
 
 CHUNK = 1024
 FORMAT = pyaudio.paInt32
 CHANNELS = 2
 RATE = 96000
 RECORD_SECONDS = 1
-
-VOLTS_PER_ADC_STEP = config.getfloat("Calibration", "volts_per_adc_step")
-AMPS_PER_ADC_STEP = config.getfloat("Calibration", "amps_per_adc_step")
-if VOLTS_PER_ADC_STEP and AMPS_PER_ADC_STEP:
-    WATTS_PER_ADC_STEP = VOLTS_PER_ADC_STEP * AMPS_PER_ADC_STEP
 
 p = pyaudio.PyAudio()
 audio_stream = p.open(format=FORMAT, channels=CHANNELS, rate=RATE,
@@ -131,8 +146,9 @@ def get_adc_data():
         else:
             frames.append(data)
 
-    stereo = b''.join(frames)
+    stereo = b''.join(frames[1:]) # throw away the first frame
     width = p.get_sample_size(FORMAT)
+    
     voltage = audioop.tomono(stereo, width, 1, 0)
     current = audioop.tomono(stereo, width, 0, 1)
     return VA(t, voltage, current)
@@ -145,6 +161,8 @@ def enqueue_adc_data(adc_data_queue):
 
 
 def convert_adc_to_numpy_float(adc_data):
+    """Trim off the first few samples because these tend to be garbage.""" 
+    
     # Convert from binary string to numpy array
     voltage = np.fromstring(adc_data.voltage, dtype='int32')
     current = np.fromstring(adc_data.current, dtype='int32')
@@ -156,9 +174,24 @@ def convert_adc_to_numpy_float(adc_data):
     return voltage, current    
 
 
+def phase_shift(voltage, current):
+    pd = abs(int(round(PHASE_DIFF)))
+    if pd == 0:
+        pass # do nothing if the phase difference is zero
+    elif PHASE_DIFF < 0: # current leads voltage
+        voltage = voltage[pd:]
+        current = current[:-pd]
+    else:
+        voltage = voltage[:-pd]
+        current = current[pd:]
+        
+    return voltage, current
+
+
 def record_data(adc_data_queue):
     adc_data = adc_data_queue.get()
     voltage, current = convert_adc_to_numpy_float(adc_data)
+    voltage, current = phase_shift(voltage, current)
     
     inst_power = voltage * current # instantaneous power
     real_power = inst_power.mean() * WATTS_PER_ADC_STEP
@@ -172,21 +205,22 @@ def record_data(adc_data_queue):
     # TODO: leading / lagging phase
     
     print("real power = {:4.2f}W, apparent_power = {:4.2f}VA, "
-          "power factor = {:1.3f}, v_rms = {:4.2f}V, i_rms = {:4.2f}A"
+          "power factor = {:1.3f}, v_rms = {:4.2f}V, i_rms = {:4.4f}A"
           .format(real_power, apparent_power, power_factor,
                   v_rms * VOLTS_PER_ADC_STEP, i_rms * AMPS_PER_ADC_STEP))
 
 
-def plot(adc_data_queue):
+def plot(voltage, current, adc_data):
     import matplotlib.pyplot as plt
-    
-    adc_data = adc_data_queue.get()
-    voltage, current = convert_adc_to_numpy_float(adc_data)
-    
+        
     if VOLTS_PER_ADC_STEP:
         print("VOLS_PER_ADC_STEP =", VOLTS_PER_ADC_STEP)        
         v_unit = "v"
         voltage *= VOLTS_PER_ADC_STEP
+        print("VOLTAGE: mean = {:3.3f}{:s}, rms = {:3.3f}{:s}"
+              .format(voltage.mean(), v_unit,
+                      audioop.rms(adc_data.voltage, p.get_sample_size(FORMAT)) 
+                                  * VOLTS_PER_ADC_STEP, v_unit))
     else:
         v_unit = "ADC steps"
         
@@ -194,25 +228,18 @@ def plot(adc_data_queue):
         print("AMPS_PER_ADC_STEP =", AMPS_PER_ADC_STEP)
         i_unit = "A"
         current *= AMPS_PER_ADC_STEP
+        print("CURRENT: mean = {:3.3f}{:s}, rms = {:3.3f}{:s}"
+              .format(current.mean(), i_unit,
+                      audioop.rms(adc_data.current, p.get_sample_size(FORMAT)) 
+                                  * AMPS_PER_ADC_STEP, i_unit))
     else:
         i_unit = "ADC steps"
-        
-    print("VOLTAGE: mean = {:3.3f}{:s}, rms = {:3.3f}{:s}"
-          .format(voltage.mean(), v_unit,
-                  audioop.rms(adc_data.voltage, p.get_sample_size(FORMAT)) 
-                              * VOLTS_PER_ADC_STEP, v_unit))
-
-    print("CURRENT: mean = {:3.3f}{:s}, rms = {:3.3f}{:s}"
-          .format(current.mean(), i_unit,
-                  audioop.rms(adc_data.current, p.get_sample_size(FORMAT)) 
-                              * AMPS_PER_ADC_STEP, i_unit))
 
     def center_yaxis(ax):
         NUM_TICKS = 9
         ymin, ymax = ax.get_ylim()
         largest = max(abs(ymin), abs(ymax))
         ax.set_yticks(np.linspace(-largest, largest, NUM_TICKS))
-        
 
     # two scales code adapted from matplotlib.org/examples/api/two_scales.html
     fig = plt.figure()
@@ -220,6 +247,7 @@ def plot(adc_data_queue):
     v_ax.plot(voltage, "b-")
     center_yaxis(v_ax)    
     v_ax.set_xlabel("time (samples)")
+    v_ax.set_title("Voltage and Current waveforms")
     
     # Make the y-axis label and tick labels match the line colour.
     v_ax.set_ylabel("potential different ({:s})".format(v_unit), color="b")
@@ -263,22 +291,74 @@ def find_time(adc_data_queue, target_time):
             return None
         else:            
             t = int(round(adc_data.time))
-            print("Read", t)
     
     if t == target_time:
         return adc_data
     else:
         return None
+    
+def positive_zero_crossings(data):
+    """Returns indices of positive-heading zero crossings."""
+    # Adapted from Jim Brissom's SO answer: http://stackoverflow.com/a/3843124
+    return np.where(np.diff(np.sign(data)) > 0)[0]
+    
+
+def get_phase_diff(adc_data):
+    """Finds the phase difference between the positive-going zero crossings
+    of the voltage and current waveforms.
+    
+    Returns:
+        The mean number of samples by which the zero crossings of the current
+        and voltage waveforms differ.  Negative means current leads voltage.
+    """ 
+    
+    voltage, current = convert_adc_to_numpy_float(adc_data)    
+    vzc = positive_zero_crossings(voltage) # vzc = voltage zero crossings
+    izc = positive_zero_crossings(current) # izc = current zero crossings
+    
+    # sanity check length
+    if not (len(izc)-2 < len(vzc) < len(izc)+2):
+        print("ERROR: number of current zero crossings ({}) too dissimilar to\n"
+              "       number of voltage zero crossings ({})."
+              .format(len(izc), len(vzc)))
+        
+        return None
+    
+    # go through each zero crossing in turn and compare
+    TOLERANCE = RATE / 100 # max number of samples by which i and v zero crossings can differ
+    i_offset = 0
+    phase_diffs = []
+    for i in range(len(vzc)):
+        try:
+            phase_diff = izc[i+i_offset] - vzc[i]
+        except IndexError:
+            continue
+        
+        if abs(phase_diff) < TOLERANCE: # This is a valid comparison            
+            phase_diffs.append(phase_diff)
+        elif phase_diff > TOLERANCE:
+            i_offset -= 1
+        else:
+            i_offset += 1
+            
+    print("phase diff = {:.1f} samples, std = {:.3f}".format(np.mean(phase_diffs),
+                                                         np.std(phase_diffs)))
+    
+    return np.mean(phase_diffs)
+    
 
 def calibrate(adc_data_queue):    
     wu = wattsup.WattsUp()
     
     v_acumulator = 0.0 # accumulator for voltage
     i_acumulator = 0.0 # accumulator for current
+    pd_acumulator = 0.0 # accumulator for phase difference
     n_v_samples = 0 # number of voltage samples
     n_i_samples = 0 # number of current samples
+    n_pd_samples = 0 # number of phase diff samples
     av_i_calibration = 0.0
     adc_i_rms = 0.0
+    av_pd = 0.0 # average phase diff
     
     while True:
         wu_data = wu.get() # blocking
@@ -299,18 +379,37 @@ def calibrate(adc_data_queue):
                 n_i_samples += 1 
                 i_acumulator += wu_data.amps / adc_i_rms
                 av_i_calibration = i_acumulator / n_i_samples # average voltage calibration
+                
+                # Phase difference calc
+                if wu_data.power_factor > 0.97:
+                    processing_pf = True
+                    pd_acumulator += get_phase_diff(adc_data)
+                    n_pd_samples += 1
+                    av_pd = pd_acumulator / n_pd_samples
+                    print("Average phase diff =", av_pd)
+                    config.set("Calibration", "phase_difference", av_pd)
+                else:
+                    processing_pf = False
+
+                print("Watts up reports power factor "
+                      "is {:2.2f} so".format(wu_data.power_factor),
+                      "will" if processing_pf else "will not",
+                      "calibrate phase angle...")
+
+                
             else:
                 print("Not sampling amps because the WattsUp reading is too low.")    
             
-            print("WattsUp Volts = {}, WattsUp amps = {}, \n"
+            print("WattsUp:    volts = {:>03.2f}, amps = {:>02.2f}, \n"
+                  "Calculated: volts = {:>03.2f}, amps = {:>02.2f}, \n"
                   "v_calibration = {}, i_calibration = {}, \n"
-                  "adc_data.time = {}, wu_data.time = {}, time diff = {:1.3f}s"
+                  "adc_data.time = {}, wu_data.time = {}, time diff = {:1.3f}s \n"
                   .format(wu_data.volts, wu_data.amps,
+                          adc_v_rms * av_v_calibration,
+                          adc_i_rms * av_i_calibration,
                           av_v_calibration, av_i_calibration,
                           adc_data.time, wu_data.time, adc_data.time - wu_data.time))
-            print("Calculated volts = {}, amps = {}"
-                  .format(adc_v_rms * av_v_calibration,
-                          adc_i_rms * av_i_calibration))
+
             config.set("Calibration", "volts_per_adc_step", av_v_calibration)
             config.set("Calibration", "amps_per_adc_step", av_i_calibration)
             with open(CONFIG_FILE, "wb") as configfile:
@@ -365,7 +464,9 @@ def main():
     if args.calibrate:
         calibrate(adc_data_queue)
     elif args.plot:
-        plot(adc_data_queue)
+        adc_data = adc_data_queue.get()
+        voltage, current = convert_adc_to_numpy_float(adc_data)
+        plot(voltage, current, adc_data)
     else:
         while True:
             try:
