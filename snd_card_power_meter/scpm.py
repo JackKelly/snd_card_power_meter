@@ -207,11 +207,19 @@ def plot(adc_data_queue):
                   audioop.rms(adc_data.current, p.get_sample_size(FORMAT)) 
                               * AMPS_PER_ADC_STEP, i_unit))
 
+    def center_yaxis(ax):
+        NUM_TICKS = 9
+        ymin, ymax = ax.get_ylim()
+        largest = max(abs(ymin), abs(ymax))
+        ax.set_yticks(np.linspace(-largest, largest, NUM_TICKS))
+        
+
     # two scales code adapted from matplotlib.org/examples/api/two_scales.html
     fig = plt.figure()
     v_ax = fig.add_subplot(111) # v_ax = voltage axes
     v_ax.plot(voltage, "b-")
-    v_ax.set_xlabel("time")
+    center_yaxis(v_ax)    
+    v_ax.set_xlabel("time (samples)")
     
     # Make the y-axis label and tick labels match the line colour.
     v_ax.set_ylabel("potential different ({:s})".format(v_unit), color="b")
@@ -222,13 +230,12 @@ def plot(adc_data_queue):
     # overlays the graph ax2 and shares the same X axis, but not the Y axis.     
     i_ax = v_ax.twinx()
     i_ax.plot(current, "g-")
+    center_yaxis(i_ax)
     i_ax.set_ylabel("current ({:s})".format(i_unit), color="g")
     for tl in i_ax.get_yticklabels():
         tl.set_color("g")
-    
-    
-    # TODO: label the x axis with miliseconds
-    plt.grid(5)
+
+    plt.grid()
     plt.show()
     
 def find_time(adc_data_queue, target_time):
@@ -291,7 +298,7 @@ def calibrate(adc_data_queue):
                 adc_i_rms = audioop.rms(adc_data.current, p.get_sample_size(FORMAT))
                 n_i_samples += 1 
                 i_acumulator += wu_data.amps / adc_i_rms
-                av_i_calibration = i_acumulator / n_v_samples # average voltage calibration
+                av_i_calibration = i_acumulator / n_i_samples # average voltage calibration
             else:
                 print("Not sampling amps because the WattsUp reading is too low.")    
             
