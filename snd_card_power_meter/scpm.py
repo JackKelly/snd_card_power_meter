@@ -142,13 +142,14 @@ def get_adc_data():
     t = time.time()
     frames = []
     for i in range(0, int(RATE / CHUNK * RECORD_SECONDS)):
-        try:
-            data = audio_stream.read(CHUNK)
-        except IOError, e:
-            print("ERROR: ", str(e), file=sys.stderr)
-            # TODO: should we do i-=1 ?
-        else:
-            frames.append(data)
+        for retry in range(5):
+            try:
+                data = audio_stream.read(CHUNK)
+            except IOError, e:
+                print("ERROR: ", str(e), file=sys.stderr)
+            else:
+                frames.append(data)
+                break
 
     stereo = b''.join(frames[1:]) # throw away the first frame because it often contains junk
     width = p.get_sample_size(FORMAT)
