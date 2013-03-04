@@ -90,6 +90,10 @@ CHANNELS = 2
 RATE = 96000
 RECORD_SECONDS = 1
 
+print("VOLTS_PER_ADC_STEP =", VOLTS_PER_ADC_STEP)
+print("AMPS_PER_ADC_STEP =", AMPS_PER_ADC_STEP)
+print("WATTS_PER_ADC_STEP =", WATTS_PER_ADC_STEP)
+
 p = pyaudio.PyAudio()
 audio_stream = p.open(format=FORMAT, channels=CHANNELS, rate=RATE,
                       input=True, frames_per_buffer=CHUNK)
@@ -133,7 +137,7 @@ def get_adc_data():
         A named tuple with fields:
         - t (float): UNIX timestamp immediately prior to sampling
         - voltage (binary string): raw ADC data 
-        - current (binary string): see 'voltage'
+        - current (binary string): raw ADC data
     """
     t = time.time()
     frames = []
@@ -146,7 +150,7 @@ def get_adc_data():
         else:
             frames.append(data)
 
-    stereo = b''.join(frames[1:]) # throw away the first frame
+    stereo = b''.join(frames[1:]) # throw away the first frame because it often contains junk
     width = p.get_sample_size(FORMAT)
     
     voltage = audioop.tomono(stereo, width, 1, 0)
@@ -160,21 +164,18 @@ def enqueue_adc_data(adc_data_queue):
         adc_data_queue.put(get_adc_data())
 
 
-def convert_adc_to_numpy_float(adc_data):
-    """Trim off the first few samples because these tend to be garbage.""" 
-    
+def convert_adc_to_numpy_float(adc_data):   
     # Convert from binary string to numpy array
-    voltage = np.fromstring(adc_data.voltage, dtype='int32')
-    current = np.fromstring(adc_data.current, dtype='int32')
-    
-    # Cast to floating point so the multiplications below work correctly
-    voltage = np.array(voltage, dtype='float')
-    current = np.array(current, dtype='float')
+    voltage = np.fromstring(adc_data.voltage, dtype='int32').astype(np.float64)
+    current = np.fromstring(adc_data.current, dtype='int32').astype(np.float64)
     
     return voltage, current    
 
 
-def phase_shift(voltage, current):
+def shift_phase(voltage, current):
+    """Shift voltage and current by PHASE_DIFF number of samples.
+    The aim is to correct for phase errors caused by the measurement system.
+    """
     pd = abs(int(round(PHASE_DIFF)))
     if pd == 0:
         pass # do nothing if the phase difference is zero
@@ -191,10 +192,12 @@ def phase_shift(voltage, current):
 def record_data(adc_data_queue):
     adc_data = adc_data_queue.get()
     voltage, current = convert_adc_to_numpy_float(adc_data)
-    voltage, current = phase_shift(voltage, current)
+    voltage, current = shift_phase(voltage, current)
     
     inst_power = voltage * current # instantaneous power
     real_power = inst_power.mean() * WATTS_PER_ADC_STEP
+    if real_power < 0:
+        real_power = 0
     
     v_rms = audioop.rms(adc_data.voltage, p.get_sample_size(FORMAT))
     i_rms = audioop.rms(adc_data.current, p.get_sample_size(FORMAT))
@@ -207,33 +210,30 @@ def record_data(adc_data_queue):
     print("real power = {:4.2f}W, apparent_power = {:4.2f}VA, "
           "power factor = {:1.3f}, v_rms = {:4.2f}V, i_rms = {:4.4f}A"
           .format(real_power, apparent_power, power_factor,
-                  v_rms * VOLTS_PER_ADC_STEP, i_rms * AMPS_PER_ADC_STEP))
+                  v_rms * VOLTS_PER_ADC_STEP, 
+                  i_rms * AMPS_PER_ADC_STEP))
+    print("raw v_rms =", v_rms, ", raw i_rms = ", i_rms)
 
 
-def plot(voltage, current, adc_data):
+def plot(voltage, current):
     import matplotlib.pyplot as plt
         
     if VOLTS_PER_ADC_STEP:
         print("VOLS_PER_ADC_STEP =", VOLTS_PER_ADC_STEP)        
         v_unit = "v"
         voltage *= VOLTS_PER_ADC_STEP
-        print("VOLTAGE: mean = {:3.3f}{:s}, rms = {:3.3f}{:s}"
-              .format(voltage.mean(), v_unit,
-                      audioop.rms(adc_data.voltage, p.get_sample_size(FORMAT)) 
-                                  * VOLTS_PER_ADC_STEP, v_unit))
     else:
-        v_unit = "ADC steps"
+        v_unit = " raw ADC float"
         
     if AMPS_PER_ADC_STEP:
         print("AMPS_PER_ADC_STEP =", AMPS_PER_ADC_STEP)
         i_unit = "A"
         current *= AMPS_PER_ADC_STEP
-        print("CURRENT: mean = {:3.3f}{:s}, rms = {:3.3f}{:s}"
-              .format(current.mean(), i_unit,
-                      audioop.rms(adc_data.current, p.get_sample_size(FORMAT)) 
-                                  * AMPS_PER_ADC_STEP, i_unit))
     else:
-        i_unit = "ADC steps"
+        i_unit = " raw ADC float"
+        
+    print("VOLTAGE: mean = {:3.3f}{:s}".format(voltage.mean(), v_unit)) 
+    print("CURRENT: mean = {:3.3f}{:s}".format(current.mean(), i_unit))
 
     def center_yaxis(ax):
         NUM_TICKS = 9
@@ -303,6 +303,9 @@ def positive_zero_crossings(data):
     return np.where(np.diff(np.sign(data)) > 0)[0]
     
 
+class ZeroCrossingError(Exception):
+    pass
+
 def get_phase_diff(adc_data):
     """Finds the phase difference between the positive-going zero crossings
     of the voltage and current waveforms.
@@ -318,11 +321,11 @@ def get_phase_diff(adc_data):
     
     # sanity check length
     if not (len(izc)-2 < len(vzc) < len(izc)+2):
-        print("ERROR: number of current zero crossings ({}) too dissimilar to\n"
-              "       number of voltage zero crossings ({})."
-              .format(len(izc), len(vzc)))
-        
-        return None
+        raise ZeroCrossingError("ERROR: number of current zero crossings ({})"
+                                " too dissimilar to\n"
+                                "       number of voltage zero crossings ({})."
+                                .format(len(izc), len(vzc)))
+
     
     # go through each zero crossing in turn and compare
     TOLERANCE = RATE / 100 # max number of samples by which i and v zero crossings can differ
@@ -350,15 +353,16 @@ def get_phase_diff(adc_data):
 def calibrate(adc_data_queue):    
     wu = wattsup.WattsUp()
     
-    v_acumulator = 0.0 # accumulator for voltage
-    i_acumulator = 0.0 # accumulator for current
-    pd_acumulator = 0.0 # accumulator for phase difference
+    v_acumulator = np.float64(0.0) # accumulator for voltage
+    i_acumulator = np.float64(0.0) # accumulator for current
+    pd_acumulator = np.float64(0.0) # accumulator for phase difference
     n_v_samples = 0 # number of voltage samples
     n_i_samples = 0 # number of current samples
     n_pd_samples = 0 # number of phase diff samples
-    av_i_calibration = 0.0
+    av_i_calibration = np.float64(0.0)
+    av_v_calibration = np.float64(0.0)
     adc_i_rms = 0.0
-    av_pd = 0.0 # average phase diff
+    av_pd = np.float64(0.0) # average phase diff
     
     while True:
         wu_data = wu.get() # blocking
@@ -374,20 +378,26 @@ def calibrate(adc_data_queue):
             av_v_calibration = v_acumulator / n_v_samples # average voltage calibration
             
             # Current
+            adc_i_rms = audioop.rms(adc_data.current, p.get_sample_size(FORMAT))            
             if wu_data.amps > 0.1:
-                adc_i_rms = audioop.rms(adc_data.current, p.get_sample_size(FORMAT))
                 n_i_samples += 1 
                 i_acumulator += wu_data.amps / adc_i_rms
                 av_i_calibration = i_acumulator / n_i_samples # average voltage calibration
                 
                 # Phase difference calc
                 if wu_data.power_factor > 0.97:
-                    processing_pf = True
-                    pd_acumulator += get_phase_diff(adc_data)
-                    n_pd_samples += 1
-                    av_pd = pd_acumulator / n_pd_samples
-                    print("Average phase diff =", av_pd)
-                    config.set("Calibration", "phase_difference", av_pd)
+                    try:
+                        pd_acumulator += get_phase_diff(adc_data)
+                    except ZeroCrossingError as e:
+                        print(str(e), file=sys.stderr)
+                        processing_pf = False
+                    else:
+                        processing_pf = True
+                        n_pd_samples += 1
+                        av_pd = pd_acumulator / n_pd_samples
+                        print("Average phase diff =", av_pd)
+                        print(av_pd.dtype)
+                        config.set("Calibration", "phase_difference", av_pd)
                 else:
                     processing_pf = False
 
@@ -402,11 +412,13 @@ def calibrate(adc_data_queue):
             
             print("WattsUp:    volts = {:>03.2f}, amps = {:>02.2f}, \n"
                   "Calculated: volts = {:>03.2f}, amps = {:>02.2f}, \n"
+                  "Raw ADC: voltage = {}, current = {}, \n"
                   "v_calibration = {}, i_calibration = {}, \n"
                   "adc_data.time = {}, wu_data.time = {}, time diff = {:1.3f}s \n"
                   .format(wu_data.volts, wu_data.amps,
                           adc_v_rms * av_v_calibration,
                           adc_i_rms * av_i_calibration,
+                          adc_v_rms, adc_i_rms,
                           av_v_calibration, av_i_calibration,
                           adc_data.time, wu_data.time, adc_data.time - wu_data.time))
 
@@ -466,7 +478,7 @@ def main():
     elif args.plot:
         adc_data = adc_data_queue.get()
         voltage, current = convert_adc_to_numpy_float(adc_data)
-        plot(voltage, current, adc_data)
+        plot(voltage, current)
     else:
         while True:
             try:

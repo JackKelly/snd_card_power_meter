@@ -104,6 +104,9 @@ class WattsUp(object):
         self._p = subprocess.Popen(shlex.split(cmd), stdout=subprocess.PIPE,
                                    stderr=subprocess.PIPE,
                                    bufsize=4096, close_fds=ON_POSIX)
+        time.sleep(1) # wait to make sure wattsup stays alive
+        self._check_abort()
+        
         self._q = Queue()
         self._t = Thread(target=enqueue_output, args=(self._p.stdout,
                                                       self._p.stderr,
@@ -111,16 +114,32 @@ class WattsUp(object):
                                                       self._abort))
         self._t.daemon = True # thread dies with the program
         self._t.start()
+        print("Successfully initialised wattsup")
         
     def _check_abort(self):
+        abort = False
         if self._abort.is_set():
-            print("QUIT", file=sys.stderr)
-            sys.exit(1)
+            abort = True
+        else:
+            self._p.poll()
+            if self._p.returncode is not None:
+                abort = True
+                
+        if abort:
+            self._abort_now()
+            
+    def _abort_now(self):
+        print("wattsup error:", self._p.stderr.read(),
+              self._p.stdout.read(), file=sys.stderr)
+        sys.exit(1)
         
     def get(self):
         """Blocking"""
         self._check_abort()
-        line = self._q.get()
+        try:
+            line = self._q.get(timeout=5)
+        except Empty:
+            self._abort_now()
         self._check_abort()
         return _line_to_tuple(line)
         
@@ -156,4 +175,7 @@ class WattsUp(object):
                 prev_data = data
 
     def __del__(self):
-        self._p.terminate()
+        self._p.poll()
+        if self._p.returncode is None: # process is still running
+            print("Terminating wattsup")
+            self._p.terminate()
