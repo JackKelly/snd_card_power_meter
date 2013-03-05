@@ -61,10 +61,10 @@ AMPS_PER_ADC_STEP = None
 PHASE_DIFF = None
 
 try:
-    CONFIG_FILE = os.path.dirname(__file__) + "/../config.cfg"
-except NameError:
     # If we load this script from an interactive Python interpreter for
     # testing then __file__ won't evaluate correctly.
+    CONFIG_FILE = os.path.dirname(__file__) + "/../config.cfg"
+except NameError:
     pass
 else:
     config = ConfigParser.RawConfigParser()
@@ -89,6 +89,8 @@ FORMAT = pyaudio.paInt32
 CHANNELS = 2
 RATE = 96000
 RECORD_SECONDS = 1
+WAV_FILENAME = "voltage_current.wav"
+DOWNSAMPLED_RATE = 8000
 
 print("VOLTS_PER_ADC_STEP =", VOLTS_PER_ADC_STEP)
 print("AMPS_PER_ADC_STEP =", AMPS_PER_ADC_STEP)
@@ -98,9 +100,13 @@ p = pyaudio.PyAudio()
 audio_stream = p.open(format=FORMAT, channels=CHANNELS, rate=RATE,
                       input=True, frames_per_buffer=CHUNK)
 
+WIDTH = p.get_sample_size(FORMAT)
 
-# Named tuple for storing voltage and current
-VA = collections.namedtuple('VA', ['time', 'voltage', 'current'])
+# Named tuples
+TVI = collections.namedtuple('TVI', ['time', 'voltage', 'current'])
+Tdata = collections.namedtuple('Tdata', ['time', 'data'])
+Power = collections.namedtuple('Power', ['time', 'real', 'apparent', 'v_rms'])
+
 
 def run_command(cmd):
     """Run a UNIX shell command.
@@ -134,10 +140,9 @@ def get_adc_data():
     Get data from the sound card's analogue to digital converter (ADC).
     
     Returns:
-        A named tuple with fields:
-        - t (float): UNIX timestamp immediately prior to sampling
-        - voltage (binary string): raw ADC data 
-        - current (binary string): raw ADC data
+        A Tdata named tuple with fields:
+        - time (float): UNIX timestamp immediately prior to sampling
+        - data (binary string): stereo ADC data
     """
     t = time.time()
     frames = []
@@ -151,22 +156,45 @@ def get_adc_data():
                 frames.append(data)
                 break
 
-    stereo = b''.join(frames[1:]) # throw away the first frame because it often contains junk
-    width = p.get_sample_size(FORMAT)
+    stereo = b''.join(frames)
+    return Tdata(t, stereo)
+
+
+def split_channels(tdata):
+    """
+    Args:
+        tdata: a Tdata named tuple with fields:
+        - time (float): UNIX timestamp
+        - data (binary string): stereo raw ADC data
     
-    voltage = audioop.tomono(stereo, width, 1, 0)
-    current = audioop.tomono(stereo, width, 0, 1)
-    return VA(t, voltage, current)
+    Returns:
+        A TVI named tuple with fields:
+        - t (float): UNIX timestamp immediately prior to sampling
+        - voltage (binary string): raw ADC data 
+        - current (binary string): raw ADC data
+    """
+    voltage = audioop.tomono(tdata.data, WIDTH, 1, 0)
+    current = audioop.tomono(tdata.data, WIDTH, 0, 1)
+    return TVI(tdata.time, voltage, current)
 
 
 def enqueue_adc_data(adc_data_queue):
-    """This will be run as a separate thread""" 
+    """This will be run as a separate thread.""" 
     while True:
         adc_data_queue.put(get_adc_data())
 
 
-def convert_adc_to_numpy_float(adc_data):   
-    # Convert from binary string to numpy array
+def convert_adc_to_numpy_float(adc_data):
+    """Convert from binary string to numpy array.
+    
+    Args:
+        adc_data: a TVI name tuple with fields:
+        - voltage (binary string): raw voltage data from ADC
+        - current (binary string): raw current data from ADC
+        
+    Returns:
+        voltage, current (each a float64 numpy vector)
+    """
     voltage = np.fromstring(adc_data.voltage, dtype='int32').astype(np.float64)
     current = np.fromstring(adc_data.current, dtype='int32').astype(np.float64)
     
@@ -176,6 +204,9 @@ def convert_adc_to_numpy_float(adc_data):
 def shift_phase(voltage, current):
     """Shift voltage and current by PHASE_DIFF number of samples.
     The aim is to correct for phase errors caused by the measurement system.
+    
+    Args:
+        voltage, current (numpy arrays)
     """
     pd = abs(int(round(PHASE_DIFF)))
     if pd == 0:
@@ -190,9 +221,12 @@ def shift_phase(voltage, current):
     return voltage, current
 
 
-def record_data(adc_data_queue):
-    adc_data = adc_data_queue.get()
-    voltage, current = convert_adc_to_numpy_float(adc_data)
+def calculate_power(split_adc_data):
+    """
+    Args:
+        split_adc_data: TVI named tuple with fields time, voltage and current.
+    """
+    voltage, current = convert_adc_to_numpy_float(split_adc_data)
     voltage, current = shift_phase(voltage, current)
     
     inst_power = voltage * current # instantaneous power
@@ -200,23 +234,28 @@ def record_data(adc_data_queue):
     if real_power < 0:
         real_power = 0
     
-    v_rms = audioop.rms(adc_data.voltage, p.get_sample_size(FORMAT))
-    i_rms = audioop.rms(adc_data.current, p.get_sample_size(FORMAT))
+    v_rms = audioop.rms(split_adc_data.voltage, WIDTH)
+    i_rms = audioop.rms(split_adc_data.current, WIDTH)
     apparent_power = v_rms * i_rms * WATTS_PER_ADC_STEP
     
     power_factor = real_power / apparent_power
     
     # TODO: leading / lagging phase
-    
     print("real power = {:4.2f}W, apparent_power = {:4.2f}VA, "
           "power factor = {:1.3f}, v_rms = {:4.2f}V, i_rms = {:4.4f}A"
           .format(real_power, apparent_power, power_factor,
                   v_rms * VOLTS_PER_ADC_STEP, 
                   i_rms * AMPS_PER_ADC_STEP))
     print("raw v_rms =", v_rms, ", raw i_rms = ", i_rms)
-
+    
+    return Power(split_adc_data.time, real_power, apparent_power, v_rms)
+  
 
 def plot(voltage, current):
+    """
+    Args:
+        voltage, current (numpy arrays)
+    """
     import matplotlib.pyplot as plt
         
     if VOLTS_PER_ADC_STEP:
@@ -280,7 +319,7 @@ def find_time(adc_data_queue, target_time):
     
     Args:
         adc_data_queue (Queue)
-        target_time (int): UNIX timestamp
+        target_time (int or float): UNIX timestamp
     """
     t = 0
     target_time = int(round(target_time))
@@ -299,7 +338,11 @@ def find_time(adc_data_queue, target_time):
         return None
     
 def positive_zero_crossings(data):
-    """Returns indices of positive-heading zero crossings."""
+    """Returns indices of positive-heading zero crossings.
+    
+    Args:
+        data (numpy vector)
+    """
     # Adapted from Jim Brissom's SO answer: http://stackoverflow.com/a/3843124
     return np.where(np.diff(np.sign(data)) > 0)[0]
     
@@ -307,7 +350,7 @@ def positive_zero_crossings(data):
 class ZeroCrossingError(Exception):
     pass
 
-def get_phase_diff(adc_data):
+def get_phase_diff(split_adc_data):
     """Finds the phase difference between the positive-going zero crossings
     of the voltage and current waveforms.
     
@@ -316,7 +359,7 @@ def get_phase_diff(adc_data):
         and voltage waveforms differ.  Negative means current leads voltage.
     """ 
     
-    voltage, current = convert_adc_to_numpy_float(adc_data)    
+    voltage, current = convert_adc_to_numpy_float(split_adc_data)    
     vzc = positive_zero_crossings(voltage) # vzc = voltage zero crossings
     izc = positive_zero_crossings(current) # izc = current zero crossings
     
@@ -370,16 +413,17 @@ def calibrate(adc_data_queue):
         
         # Now get ADC data recorded at wu_data.time
         adc_data = find_time(adc_data_queue, wu_data.time)
+        split_adc_data = split_channels(adc_data)
         
-        if adc_data:
+        if split_adc_data:
             # Voltage
-            adc_v_rms = audioop.rms(adc_data.voltage, p.get_sample_size(FORMAT)) 
+            adc_v_rms = audioop.rms(split_adc_data.voltage, p.get_sample_size(FORMAT)) 
             n_v_samples += 1
             v_acumulator += wu_data.volts / adc_v_rms
             av_v_calibration = v_acumulator / n_v_samples # average voltage calibration
             
             # Current
-            adc_i_rms = audioop.rms(adc_data.current, p.get_sample_size(FORMAT))            
+            adc_i_rms = audioop.rms(split_adc_data.current, p.get_sample_size(FORMAT))            
             if wu_data.amps > 0.1:
                 n_i_samples += 1 
                 i_acumulator += wu_data.amps / adc_i_rms
@@ -388,7 +432,7 @@ def calibrate(adc_data_queue):
                 # Phase difference calc
                 if wu_data.power_factor > 0.97:
                     try:
-                        pd_acumulator += get_phase_diff(adc_data)
+                        pd_acumulator += get_phase_diff(split_adc_data)
                     except ZeroCrossingError as e:
                         print(str(e), file=sys.stderr)
                         processing_pf = False
@@ -481,10 +525,30 @@ def main():
         voltage, current = convert_adc_to_numpy_float(adc_data)
         plot(voltage, current)
     else:
+        output = wave.open(WAV_FILENAME, "wb")
+        output.setnchannels(CHANNELS)
+        output.setsampwidth(WIDTH)
+        output.setframerate(DOWNSAMPLED_RATE)
+        filter_state = None
         while True:
             try:
-                record_data(adc_data_queue)
+                adc_data = adc_data_queue.get()
+                split_adc_data = split_channels(adc_data)
+                power = calculate_power(split_adc_data)
+                
+                # TODO: do save power to disk
+                
+                # WAV dump to disk
+                downsampled, filter_state = audioop.ratecv(adc_data.data, 
+                                                           WIDTH, CHANNELS, 
+                                                           RATE,
+                                                           DOWNSAMPLED_RATE,
+                                                           filter_state)
+                output.writeframes(downsampled)
+
+
             except KeyboardInterrupt:
+                output.close()
                 audio_stream.stop_stream()
                 audio_stream.close()
                 p.terminate()
