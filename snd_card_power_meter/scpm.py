@@ -47,6 +47,7 @@ import wattsup
 import collections
 import os
 import ConfigParser # docs: http://docs.python.org/2/library/configparser.html
+import datetime
 from threading import Thread
 
 try:
@@ -89,7 +90,7 @@ FORMAT = pyaudio.paInt32
 CHANNELS = 2
 RATE = 96000
 RECORD_SECONDS = 1
-WAV_FILENAME = "voltage_current.wav"
+WAV_FILENAME = "voltage_current"
 DOWNSAMPLED_RATE = 8000
 
 print("VOLTS_PER_ADC_STEP =", VOLTS_PER_ADC_STEP)
@@ -509,6 +510,15 @@ def start_adc_data_queue_and_thread():
     
     return adc_data_queue, adc_thread    
     
+def get_wavfile_name(t):
+    return WAV_FILENAME + "-{:.3f}".format(t) + ".wav" 
+    
+def get_wavfile(wavefile_name):
+    wavfile = wave.open(wavefile_name, 'wb')
+    wavfile.setnchannels(CHANNELS)
+    wavfile.setsampwidth(WIDTH)
+    wavfile.setframerate(DOWNSAMPLED_RATE)
+    return wavfile
 
 def main():
     args = setup_argparser()
@@ -525,11 +535,8 @@ def main():
         voltage, current = convert_adc_to_numpy_float(adc_data)
         plot(voltage, current)
     else:
-        output = wave.open(WAV_FILENAME, "wb")
-        output.setnchannels(CHANNELS)
-        output.setsampwidth(WIDTH)
-        output.setframerate(DOWNSAMPLED_RATE)
         filter_state = None
+        wavfile = None
         while True:
             try:
                 adc_data = adc_data_queue.get()
@@ -544,11 +551,22 @@ def main():
                                                            RATE,
                                                            DOWNSAMPLED_RATE,
                                                            filter_state)
-                output.writeframes(downsampled)
+                
+                t = datetime.datetime.fromtimestamp(adc_data.time)
+                if wavfile is None or t.minute == (prev.minute+1)%60:
+                    if wavfile is not None:
+                        wavfile.close()
+                        prev_wavfile_name = wavfile_name
+                    wavfile_name = get_wavfile_name(adc_data.time)
+                    wavfile = get_wavfile(wavfile_name)
+                    
+                prev = t
+                
+                wavfile.writeframes(downsampled)
 
 
             except KeyboardInterrupt:
-                output.close()
+                wavfile.close()
                 audio_stream.stop_stream()
                 audio_stream.close()
                 p.terminate()
