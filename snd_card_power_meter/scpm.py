@@ -88,10 +88,10 @@ else:
 CHUNK = 1024
 FORMAT = pyaudio.paInt32
 CHANNELS = 2
-RATE = 96000
+RATE = 96000 #Hz
 RECORD_SECONDS = 1
 WAV_FILENAME = "voltage_current"
-DOWNSAMPLED_RATE = 8000
+DOWNSAMPLED_RATE = 15000 # Hz
 
 print("VOLTS_PER_ADC_STEP =", VOLTS_PER_ADC_STEP)
 print("AMPS_PER_ADC_STEP =", AMPS_PER_ADC_STEP)
@@ -511,7 +511,7 @@ def start_adc_data_queue_and_thread():
     return adc_data_queue, adc_thread    
     
 def get_wavfile_name(t):
-    return WAV_FILENAME + "-{:.3f}".format(t) + ".wav" 
+    return WAV_FILENAME + "-{:f}".format(t) + ".wav" 
     
 def get_wavfile(wavefile_name):
     wavfile = wave.open(wavefile_name, 'wb')
@@ -537,12 +537,13 @@ def main():
     else:
         filter_state = None
         wavfile = None
+        p = None
+        cmd = ""
         while True:
             try:
                 adc_data = adc_data_queue.get()
                 split_adc_data = split_channels(adc_data)
                 power = calculate_power(split_adc_data)
-                
                 # TODO: do save power to disk
                 
                 # WAV dump to disk
@@ -553,10 +554,34 @@ def main():
                                                            filter_state)
                 
                 t = datetime.datetime.fromtimestamp(adc_data.time)
+                # TODO: change to hourly recordings after testing!
+                
+                # Check if it's time to create a new data file
                 if wavfile is None or t.minute == (prev.minute+1)%60:
                     if wavfile is not None:
                         wavfile.close()
-                        prev_wavfile_name = wavfile_name
+                        
+                        # Check if the previous conversion process has completed
+                        if p is not None:
+                            p.poll()
+                            if p.returncode is None:
+                                print("WARNING: command has not terminated yet:",
+                                       cmd, file=sys.stderr)
+                            elif p.returncode == 0:
+                                print("Previous conversion successfully completed.")
+                            else:
+                                print("WARNING: Previous conversion FAILED.",
+                                       cmd, file=sys.stderr)
+                                
+                        # Run new shell process to compress wav file
+                        base_filename = wavfile_name.rpartition('.')[0]
+                        cmd = "ffmpeg -i {filename}.wav -acodec pcm_s24le {filename}_24bit.wav"\
+                              " && flac {filename}_24bit.wav -o {filename}.flac --verify --best"\
+                              " && rm -f {filename}_24bit.wav {filename}.wav"\
+                              .format(filename=base_filename)
+                        print("Running", cmd)                                
+                        p = subprocess.Popen(cmd, shell=True)
+                        
                     wavfile_name = get_wavfile_name(adc_data.time)
                     wavfile = get_wavfile(wavfile_name)
                     

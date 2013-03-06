@@ -15,4 +15,5 @@ src/
 build/
 
 *.wav
+*.flac
 config.cfg
