@@ -9,10 +9,11 @@ Requirements
 
   Ubuntu packages
      sudo apt-get install python-dev python-pip alsa alsa-tools libasound2-dev
+     libportaudio2 portaudio19-dev sox
 
-  pyalsaaudio
-     * Install on Linux using "sudo pip install pyalsaaudio"
-                           or "sudo easy_install pyalsaaudio".
+  pyaudio
+  
+  sox  http://sox.sourceforge.net
 
   On Linux, add yourself to the audio users:
      sudo adduser USERNAME audio
@@ -91,7 +92,8 @@ CHANNELS = 2
 RATE = 96000 #Hz
 RECORD_SECONDS = 1
 WAV_FILENAME = "voltage_current"
-DOWNSAMPLED_RATE = 15000 # Hz
+DOWNSAMPLED_RATE = 16000 # Hz (MIT REDD uses 15kHz but 16kHz is a standard
+#                              rate and so increases compatibility)
 
 print("VOLTS_PER_ADC_STEP =", VOLTS_PER_ADC_STEP)
 print("AMPS_PER_ADC_STEP =", AMPS_PER_ADC_STEP)
@@ -517,7 +519,7 @@ def get_wavfile(wavefile_name):
     wavfile = wave.open(wavefile_name, 'wb')
     wavfile.setnchannels(CHANNELS)
     wavfile.setsampwidth(WIDTH)
-    wavfile.setframerate(DOWNSAMPLED_RATE)
+    wavfile.setframerate(RATE)
     return wavfile
 
 def main():
@@ -547,17 +549,10 @@ def main():
                 # TODO: do save power to disk
                 
                 # WAV dump to disk
-                downsampled, filter_state = audioop.ratecv(adc_data.data, 
-                                                           WIDTH, CHANNELS, 
-                                                           RATE,
-                                                           DOWNSAMPLED_RATE,
-                                                           filter_state)
-                
-                t = datetime.datetime.fromtimestamp(adc_data.time)
-                # TODO: change to hourly recordings after testing!
-                
                 # Check if it's time to create a new data file
+                t = datetime.datetime.fromtimestamp(adc_data.time)
                 if wavfile is None or t.minute == (prev.minute+1)%60:
+                    # TODO: change to hourly recordings after testing!
                     if wavfile is not None:
                         wavfile.close()
                         
@@ -575,10 +570,16 @@ def main():
                                 
                         # Run new shell process to compress wav file
                         base_filename = wavfile_name.rpartition('.')[0]
-                        cmd = "ffmpeg -i {filename}.wav -acodec pcm_s24le {filename}_24bit.wav"\
-                              " && flac {filename}_24bit.wav -o {filename}.flac --verify --best"\
-                              " && rm -f {filename}_24bit.wav {filename}.wav"\
-                              .format(filename=base_filename)
+                        # sox is a high quality audio conversion program
+                        # the -v -L rate option forced very high quality
+                        # with linear phase.
+                        cmd = "sox --no-dither {filename}.wav --bits 24"\
+                              " --compression 8 {filename}.flac"\
+                              " rate -v -L {downsampled_rate}"\
+                              " && rm {filename}.wav"\
+                              .format(filename=base_filename,
+                                      downsampled_rate=DOWNSAMPLED_RATE)
+
                         print("Running", cmd)                                
                         p = subprocess.Popen(cmd, shell=True)
                         
@@ -587,7 +588,7 @@ def main():
                     
                 prev = t
                 
-                wavfile.writeframes(downsampled)
+                wavfile.writeframes(adc_data.data)
 
 
             except KeyboardInterrupt:
