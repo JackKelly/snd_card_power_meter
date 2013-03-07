@@ -12,7 +12,7 @@ Requirements
      libportaudio2 portaudio19-dev sox
 
   pyaudio
-  
+
   sox  http://sox.sourceforge.net
 
   On Linux, add yourself to the audio users:
@@ -96,14 +96,9 @@ DOWNSAMPLED_RATE = 16000 # Hz (MIT REDD uses 15kHz but 16kHz is a standard
 #                              rate and so increases compatibility)
 
 print("VOLTS_PER_ADC_STEP =", VOLTS_PER_ADC_STEP)
-print("AMPS_PER_ADC_STEP =", AMPS_PER_ADC_STEP)
+print("AMPS_PER_ADC_STEP  =", AMPS_PER_ADC_STEP)
 print("WATTS_PER_ADC_STEP =", WATTS_PER_ADC_STEP)
 
-p = pyaudio.PyAudio()
-audio_stream = p.open(format=FORMAT, channels=CHANNELS, rate=RATE,
-                      input=True, frames_per_buffer=CHUNK)
-
-WIDTH = p.get_sample_size(FORMAT)
 
 # Named tuples
 TVI = collections.namedtuple('TVI', ['time', 'voltage', 'current'])
@@ -138,7 +133,7 @@ def config_mixer():
     run_command(["amixer", "set", "Capture", "16", "capture"])
     
 
-def get_adc_data():
+def get_adc_data(audio_stream):
     """
     Get data from the sound card's analogue to digital converter (ADC).
     
@@ -163,6 +158,12 @@ def get_adc_data():
     return Tdata(t, stereo)
 
 
+def enqueue_adc_data(adc_data_queue, audio_stream):
+    """This will be run as a separate thread.""" 
+    while True:
+        adc_data_queue.put(get_adc_data(audio_stream))
+        
+        
 def split_channels(tdata):
     """
     Args:
@@ -179,12 +180,6 @@ def split_channels(tdata):
     voltage = audioop.tomono(tdata.data, WIDTH, 1, 0)
     current = audioop.tomono(tdata.data, WIDTH, 0, 1)
     return TVI(tdata.time, voltage, current)
-
-
-def enqueue_adc_data(adc_data_queue):
-    """This will be run as a separate thread.""" 
-    while True:
-        adc_data_queue.put(get_adc_data())
 
 
 def convert_adc_to_numpy_float(adc_data):
@@ -211,6 +206,9 @@ def shift_phase(voltage, current):
     Args:
         voltage, current (numpy arrays)
     """
+    if PHASE_DIFF is None:
+        return voltage, current
+    
     pd = abs(int(round(PHASE_DIFF)))
     if pd == 0:
         pass # do nothing if the phase difference is zero
@@ -227,7 +225,16 @@ def shift_phase(voltage, current):
 def calculate_power(split_adc_data):
     """
     Args:
-        split_adc_data: TVI named tuple with fields time, voltage and current.
+        split_adc_data: TVI named tuple with fields:
+        - time (float): UNIX timestamp
+        - voltage, current (binary string with raw ADC data)
+        
+    Returns:
+        Power named tuple with fields:
+        - time (float): UNIX timestamp
+        - real_power (float)
+        - apparent_power (float)
+        - v_rms (float)
     """
     voltage, current = convert_adc_to_numpy_float(split_adc_data)
     voltage, current = shift_phase(voltage, current)
@@ -501,12 +508,26 @@ def setup_argparser():
 
     
     args = parser.parse_args()
+    
+    if WATTS_PER_ADC_STEP is None and not args.calibrate:
+        print("Could not load config file.  Please run with --calibrate option"
+              " to generate a config file.", file=sys.stderr)
+        sys.exit(1)
 
     return args
 
 def start_adc_data_queue_and_thread():
+
+    p = pyaudio.PyAudio()
+    audio_stream = p.open(format=FORMAT, channels=CHANNELS, rate=RATE,
+                          input=True, frames_per_buffer=CHUNK)
+    
+    global WIDTH
+    WIDTH = p.get_sample_size(FORMAT)
+
     adc_data_queue = Queue()
-    adc_thread = Thread(target=enqueue_adc_data, args=(adc_data_queue, ))
+    adc_thread = Thread(target=enqueue_adc_data, args=(adc_data_queue,
+                                                       audio_stream))
     adc_thread.daemon = True # this thread dies with the program
     adc_thread.start()
     
@@ -520,7 +541,7 @@ def get_wavfile(wavefile_name):
     wavfile.setnchannels(CHANNELS)
     wavfile.setsampwidth(WIDTH)
     wavfile.setframerate(RATE)
-    return wavfile
+    return wavfile    
 
 def main():
     args = setup_argparser()
@@ -539,7 +560,7 @@ def main():
     else:
         filter_state = None
         wavfile = None
-        p = None
+        proc = None # a subprocess.Popen object
         cmd = ""
         while True:
             try:
@@ -557,12 +578,12 @@ def main():
                         wavfile.close()
                         
                         # Check if the previous conversion process has completed
-                        if p is not None:
-                            p.poll()
-                            if p.returncode is None:
+                        if proc is not None:
+                            proc.poll()
+                            if proc.returncode is None:
                                 print("WARNING: command has not terminated yet:",
                                        cmd, file=sys.stderr)
-                            elif p.returncode == 0:
+                            elif proc.returncode == 0:
                                 print("Previous conversion successfully completed.")
                             else:
                                 print("WARNING: Previous conversion FAILED.",
@@ -581,7 +602,7 @@ def main():
                                       downsampled_rate=DOWNSAMPLED_RATE)
 
                         print("Running", cmd)                                
-                        p = subprocess.Popen(cmd, shell=True)
+                        proc = subprocess.Popen(cmd, shell=True)
                         
                     wavfile_name = get_wavfile_name(adc_data.time)
                     wavfile = get_wavfile(wavfile_name)
@@ -595,7 +616,7 @@ def main():
                 wavfile.close()
                 audio_stream.stop_stream()
                 audio_stream.close()
-                p.terminate()
+                proc.terminate()
                 break
         
     print("")
