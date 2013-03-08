@@ -37,7 +37,6 @@ Log data from Watts Up using
 
 from __future__ import print_function, division
 import numpy as np
-import pyaudio # docs: http://people.csail.mit.edu/hubert/pyaudio/
 import wave
 import subprocess
 import sys
@@ -49,12 +48,8 @@ import collections
 import os
 import ConfigParser # docs: http://docs.python.org/2/library/configparser.html
 import datetime
-from threading import Thread
-
-try:
-    from Queue import Queue, Empty
-except ImportError:
-    from queue import Queue, Empty # python 3.x
+import sampler
+from struct import Struct
 
 # Load configuration file
 config = None
@@ -62,124 +57,59 @@ VOLTS_PER_ADC_STEP = None
 AMPS_PER_ADC_STEP = None
 PHASE_DIFF = None
 
-try:
-    # If we load this script from an interactive Python interpreter for
-    # testing then __file__ won't evaluate correctly.
-    CONFIG_FILE = os.path.dirname(__file__) + "/../config.cfg"
-except NameError:
-    pass
-else:
-    config = ConfigParser.RawConfigParser()
-    config.read(CONFIG_FILE)
+def load_config():
     try:
-        config.add_section("Calibration")
-    except ConfigParser.DuplicateSectionError:
+        # If we load this script from an interactive Python interpreter for
+        # testing then __file__ won't evaluate correctly.
+        CONFIG_FILE = os.path.dirname(__file__) + "/../config.cfg"
+    except NameError:
+        pass
+    else:
+        config = ConfigParser.RawConfigParser()
+        config.read(CONFIG_FILE)
         try:
-            VOLTS_PER_ADC_STEP = config.getfloat("Calibration", "volts_per_adc_step")
-            AMPS_PER_ADC_STEP = config.getfloat("Calibration", "amps_per_adc_step")
-            PHASE_DIFF = config.getfloat("Calibration", "phase_difference")
-        except ConfigParser.NoOptionError:
-            pass
+            config.add_section("Calibration")
+        except ConfigParser.DuplicateSectionError:
+            try:
+                VOLTS_PER_ADC_STEP = config.getfloat("Calibration", "volts_per_adc_step")
+                AMPS_PER_ADC_STEP = config.getfloat("Calibration", "amps_per_adc_step")
+                PHASE_DIFF = config.getfloat("Calibration", "phase_difference")
+            except ConfigParser.NoOptionError:
+                pass
+    
+    if VOLTS_PER_ADC_STEP and AMPS_PER_ADC_STEP:
+        WATTS_PER_ADC_STEP = VOLTS_PER_ADC_STEP * AMPS_PER_ADC_STEP
+    else:
+        WATTS_PER_ADC_STEP = None
+    
+    print("VOLTS_PER_ADC_STEP =", VOLTS_PER_ADC_STEP)
+    print("AMPS_PER_ADC_STEP  =", AMPS_PER_ADC_STEP)
+    print("WATTS_PER_ADC_STEP =", WATTS_PER_ADC_STEP)
 
-if VOLTS_PER_ADC_STEP and AMPS_PER_ADC_STEP:
-    WATTS_PER_ADC_STEP = VOLTS_PER_ADC_STEP * AMPS_PER_ADC_STEP
-else:
-    WATTS_PER_ADC_STEP = None
-
-CHUNK = 1024
-FORMAT = pyaudio.paInt32
-CHANNELS = 2
-RATE = 96000 #Hz
-RECORD_SECONDS = 1
-WAV_FILENAME = "voltage_current"
 DOWNSAMPLED_RATE = 16000 # Hz (MIT REDD uses 15kHz but 16kHz is a standard
 #                              rate and so increases compatibility)
-
-print("VOLTS_PER_ADC_STEP =", VOLTS_PER_ADC_STEP)
-print("AMPS_PER_ADC_STEP  =", AMPS_PER_ADC_STEP)
-print("WATTS_PER_ADC_STEP =", WATTS_PER_ADC_STEP)
+WAV_FILENAME = "voltage_current"
 
 
 # Named tuples
 TVI = collections.namedtuple('TVI', ['time', 'voltage', 'current'])
-Tdata = collections.namedtuple('Tdata', ['time', 'data'])
 Power = collections.namedtuple('Power', ['time', 'real', 'apparent', 'v_rms'])
 
-
-def run_command(cmd):
-    """Run a UNIX shell command.
-    
-    Args:
-        cmd (list of strings)
-    """
-    try:
-        p = subprocess.Popen(cmd, stderr=subprocess.PIPE)
-        p.wait()
-    except Exception, e:
-        print("ERROR: Failed to run '{}'".format(" ".join(cmd)), file=sys.stderr)
-        print("ERROR:", str(e), file=sys.stderr)
-    else:
-        if p.returncode == 0:
-            print("Successfully ran '{}'".format(" ".join(cmd)))
-        else:
-            print("ERROR: Failed to run '{}'".format(" ".join(cmd)), file=sys.stderr)
-            print(p.stderr.read(), file=sys.stderr)
-
-
-def config_mixer():
-    print("Configuring mixer...")
-    run_command(["amixer", "sset", "Input Source", "Rear Mic"])
-    run_command(["amixer", "set", "Digital", "60", "capture"])
-    run_command(["amixer", "set", "Capture", "16", "capture"])
-    
-
-def get_adc_data(audio_stream):
-    """
-    Get data from the sound card's analogue to digital converter (ADC).
-    
-    Returns:
-        A Tdata named tuple with fields:
-        - time (float): UNIX timestamp immediately prior to sampling
-        - data (binary string): stereo ADC data
-    """
-    t = time.time()
-    frames = []
-    for i in range(0, int(RATE / CHUNK * RECORD_SECONDS)):
-        for retry in range(5):
-            try:
-                data = audio_stream.read(CHUNK)
-            except IOError, e:
-                print("ERROR: ", str(e), file=sys.stderr)
-            else:
-                frames.append(data)
-                break
-
-    stereo = b''.join(frames)
-    return Tdata(t, stereo)
-
-
-def enqueue_adc_data(adc_data_queue, audio_stream):
-    """This will be run as a separate thread.""" 
-    while True:
-        adc_data_queue.put(get_adc_data(audio_stream))
         
-        
-def split_channels(tdata):
+def split_channels(stereo):
     """
     Args:
-        tdata: a Tdata named tuple with fields:
-        - time (float): UNIX timestamp
-        - data (binary string): stereo raw ADC data
+        stereo (binary string): stereo raw ADC data
     
     Returns:
-        A TVI named tuple with fields:
-        - t (float): UNIX timestamp immediately prior to sampling
+        A Struct with fields:
         - voltage (binary string): raw ADC data 
         - current (binary string): raw ADC data
     """
-    voltage = audioop.tomono(tdata.data, WIDTH, 1, 0)
-    current = audioop.tomono(tdata.data, WIDTH, 0, 1)
-    return TVI(tdata.time, voltage, current)
+    data = Struct()
+    data.voltage = audioop.tomono(stereo, sampler.WIDTH, 1, 0)
+    data.current = audioop.tomono(stereo, sampler.WIDTH, 0, 1)
+    return data
 
 
 def convert_adc_to_numpy_float(adc_data):
@@ -239,32 +169,35 @@ def calculate_power(split_adc_data):
     voltage, current = convert_adc_to_numpy_float(split_adc_data)
     voltage, current = shift_phase(voltage, current)
     
+    d = Data()
+    d.time = split_adc_data.time
+    
     inst_power = voltage * current # instantaneous power
-    real_power = inst_power.mean() * WATTS_PER_ADC_STEP
-    if real_power < 0:
-        real_power = 0
+    d.real_power = inst_power.mean() * WATTS_PER_ADC_STEP
+    if d.real_power < 0:
+        d.real_power = 0
     
-    v_rms = audioop.rms(split_adc_data.voltage, WIDTH)
+    d.v_rms = audioop.rms(split_adc_data.voltage, WIDTH)
     i_rms = audioop.rms(split_adc_data.current, WIDTH)
-    apparent_power = v_rms * i_rms * WATTS_PER_ADC_STEP
+    d.apparent_power = d.v_rms * i_rms * WATTS_PER_ADC_STEP
     
-    power_factor = real_power / apparent_power
+    power_factor = d.real_power / d.apparent_power
     
     # TODO: leading / lagging phase
     print("real power = {:4.2f}W, apparent_power = {:4.2f}VA, "
           "power factor = {:1.3f}, v_rms = {:4.2f}V, i_rms = {:4.4f}A"
-          .format(real_power, apparent_power, power_factor,
-                  v_rms * VOLTS_PER_ADC_STEP, 
+          .format(d.real_power, d.apparent_power, power_factor,
+                  d.v_rms * VOLTS_PER_ADC_STEP, 
                   i_rms * AMPS_PER_ADC_STEP))
-    print("raw v_rms =", v_rms, ", raw i_rms = ", i_rms)
+    print("raw v_rms =", d.v_rms, ", raw i_rms = ", i_rms)
     
-    return Power(split_adc_data.time, real_power, apparent_power, v_rms)
+    return d
   
 
 def plot(voltage, current):
     """
     Args:
-        voltage, current (numpy arrays)
+        voltage, current (numpy arrays containing raw ADC values)
     """
     import matplotlib.pyplot as plt
         
@@ -516,22 +449,6 @@ def setup_argparser():
 
     return args
 
-def start_adc_data_queue_and_thread():
-
-    p = pyaudio.PyAudio()
-    audio_stream = p.open(format=FORMAT, channels=CHANNELS, rate=RATE,
-                          input=True, frames_per_buffer=CHUNK)
-    
-    global WIDTH
-    WIDTH = p.get_sample_size(FORMAT)
-
-    adc_data_queue = Queue()
-    adc_thread = Thread(target=enqueue_adc_data, args=(adc_data_queue,
-                                                       audio_stream))
-    adc_thread.daemon = True # this thread dies with the program
-    adc_thread.start()
-    
-    return adc_data_queue, adc_thread    
     
 def get_wavfile_name(t):
     return WAV_FILENAME + "-{:f}".format(t) + ".wav" 
