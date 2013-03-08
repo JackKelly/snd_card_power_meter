@@ -1,7 +1,8 @@
 from __future__ import print_function
 import snd_card_power_meter.scpm as scpm
+from snd_card_power_meter.bunch import Bunch
 import unittest
-import collections
+
 try:
     from Queue import Queue, Empty
 except ImportError:
