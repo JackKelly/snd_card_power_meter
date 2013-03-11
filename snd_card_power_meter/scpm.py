@@ -101,7 +101,6 @@ def calculate_power(split_adc_data, calibration):
     """
     Args:
         split_adc_data: Bunch with fields:
-        - time (float): UNIX timestamp
         - voltage (binary string): raw ADC data
         - current (binary string): raw ADC data
         
@@ -109,35 +108,32 @@ def calculate_power(split_adc_data, calibration):
         - watts_per_adc_step (float)
         - volts_per_adc_step (float)
         - amps_per_adc_step (float)
-        - width (int): number of bytes per sample per channel
         
     Returns:
         Bunch with fields:
-        - time (float): UNIX timestamp
         - real_power (float)
         - apparent_power (float)
         - v_rms (float)
     """
     voltage, current = convert_adc_to_numpy_float(split_adc_data)
-    voltage, current = shift_phase(voltage, current)
+    voltage, current = shift_phase(voltage, current, calibration)
     
     data = Bunch()
-    data.time = split_adc_data.time
     
     inst_power = voltage * current # instantaneous power
     data.real_power = inst_power.mean() * calibration.watts_per_adc_step
     if data.real_power < 0:
         data.real_power = 0
     
-    data.v_rms = audioop.rms(split_adc_data.voltage, calibration.width)
-    i_rms = audioop.rms(split_adc_data.current, calibration.width)
+    data.v_rms = audioop.rms(split_adc_data.voltage, config.SAMPLE_WIDTH)
+    i_rms = audioop.rms(split_adc_data.current, config.SAMPLE_WIDTH)
     data.apparent_power = data.v_rms * i_rms * calibration.watts_per_adc_step
     
     power_factor = data.real_power / data.apparent_power
     
     # TODO: leading / lagging phase
-    print("real power = {:4.2f}W, apparent_power = {:4.2f}VA, "
-          "power factor = {:1.3f}, v_rms = {:4.2f}V, i_rms = {:4.4f}A"
+    print("real = {:4.2f}W, apparent = {:4.2f}VA, "
+          "PF = {:1.3f}, v_rms = {:4.2f}V, i_rms = {:4.4f}A"
           .format(data.real_power, data.apparent_power, power_factor,
                   data.v_rms * calibration.volts_per_adc_step, 
                   i_rms * calibration.amps_per_adc_step))
@@ -160,7 +156,7 @@ def plot(voltage, current, calibration=None):
     if calibration:
         print("volts_per_adc_step =", calibration.volts_per_adc_step)
         print("amps_per_adc_step =", calibration.amps_per_adc_step)
-        v_unit = "v"
+        v_unit = "V"
         i_unit = "A"        
         voltage *= calibration.volts_per_adc_step
         current *= calibration.amps_per_adc_step
