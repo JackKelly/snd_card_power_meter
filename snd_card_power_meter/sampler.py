@@ -65,6 +65,7 @@ class Sampler(threading.Thread):
         return Bunch(time=t, data=stereo)
     
     def terminate(self):
+        print("Terminating Sampler")
         self._abort.set()
         
         if self._audio_stream is not None:

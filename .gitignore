@@ -18,3 +18,4 @@ build/
 *.flac
 config.cfg
 calibration.cfg
+mains.dat

@@ -18,17 +18,19 @@ Log data from Watts Up using
 
 from __future__ import print_function, division
 import snd_card_power_meter.scpm as scpm
-import snd_card_power_meter.sampler as sampler
+from snd_card_power_meter.sampler import Sampler
 
 def main():
-    adc_data_queue, audio_stream = sampler.start()
+    sampler = Sampler()
+        
     try:
-        scpm.calibrate(adc_data_queue)
+        sampler.open()
+        sampler.start()        
+        scpm.calibrate(sampler.adc_data_queue)
     except KeyboardInterrupt:
         pass
-    finally:
-        audio_stream.stop_stream()
-        audio_stream.close()
+
+    sampler.terminate()
 
 if __name__ == '__main__':
     main()

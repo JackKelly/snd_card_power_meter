@@ -126,8 +126,10 @@ def calculate_power(split_adc_data, calibration):
         data.real_power = 0
     
     data.v_rms = audioop.rms(split_adc_data.voltage, config.SAMPLE_WIDTH)
+    data.v_rms *= calibration.volts_per_adc_step
     i_rms = audioop.rms(split_adc_data.current, config.SAMPLE_WIDTH)
-    data.apparent_power = data.v_rms * i_rms * calibration.watts_per_adc_step
+    i_rms *= calibration.amps_per_adc_step
+    data.apparent_power = data.v_rms * i_rms
     
     power_factor = data.real_power / data.apparent_power
     
@@ -145,11 +147,13 @@ def calculate_power(split_adc_data, calibration):
 def plot(voltage, current, calibration=None):
     """
     Args:
-        voltage, current (numpy arrays containing raw ADC values)
+        voltage (numpy array containing raw ADC values)
+        
+        current (numpy array containing raw ADC values)
+        
         calibration: Optional. Bunch with fields:
         - amps_per_adc_step (float)
         - volts_per_adc_step (float)
-        
     """
     import matplotlib.pyplot as plt
     

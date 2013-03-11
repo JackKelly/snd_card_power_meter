@@ -1,4 +1,10 @@
 snd_card_electricity_meter
 ==========================
 
-An electricity meter using a sound card to digitise signals from current transformer probes and AC-AC adapters.
+An electricity meter using a sound card to digitise signals from 
+current transformer probes and AC-AC adapters.
+
+installation
+============
+
+Add snd_card_power_meter to your PYTHONPATH environment variable.
