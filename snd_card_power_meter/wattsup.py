@@ -11,50 +11,35 @@ Requirements:
 Usage:
     wu = WattsUp() # connect to WattsUp meter
     data = wu.get_nowait() # non-blocking
-    print(data)
 
-WULine(time=1361803002.0, volts=230.1, amps=2.4)
 
 """
 
 from __future__ import print_function, division
-import subprocess, shlex, sys, time, collections
-from threading import Thread, Event
+import subprocess, shlex, sys, time, threading
+from bunch import Bunch
 
 try:
     from Queue import Queue, Empty
 except ImportError:
     from queue import Queue, Empty # python 3.x
+    
 
-def enqueue_output(stdout, stderr, queue, abort_event):
-    """This is run as a separate thread.
+def _parse_wu_line(line):
+    """Convert a line of text from the Watts Up.
     
     Args:
-        - stdout, stderr: file objects
-        - queue (Queue)
-        - abort_event (threading.Event)
-    """ 
-    for line in iter(stdout.readline, b''):
-        queue.put(line)
-    for err_line in iter(stderr.readline, b''):
-        if ("Blech. Giving up on read: Bad address" in err_line or
-            "Reading final time stamp: Bad address" in err_line):
-            
-            print("ERROR:", err_line, file=sys.stderr)
-            abort_event.set()
+        line (str)
+    
+    Returns:
+        A Bunch with fields:
+        - time (float): UNIX timestamp
+        - volts (float)
+        - amps (float)
+        - power_factor (float)
         
-    stdout.close()
-    stderr.close()
-
-# Create a named tuple for storing time, volts and amps
-# WULine = "Watts Up Line"
-WULine = collections.namedtuple('WULine', ['time', 'volts', 'amps', 'power_factor'])
-
-def _line_to_tuple(line):
-    """Convert a line of text from the Watts Up to a WULine named tuple."""
-    line = line.split()
-    for i in range(len(line)):
-        line[i] = line[i].strip(',')
+    """
+    line = [word.strip(',') for word in line.split()]
     
     # Process time (first column)
     try:
@@ -64,118 +49,126 @@ def _line_to_tuple(line):
         # to be a valid line of data.
         return None
 
+    data = Bunch() # what we return
+
     # The wattsup utility only gives HH:MM:SS so to create a "full"
     # UNIX timestamp we need to merge the HH:MM:SS data from wattsup
-    # with the current date.
+    # with the current system date.
     now = time.localtime()            
     t = time.struct_time((now.tm_year, now.tm_mon, now.tm_mday, 
                           wattsup_time.tm_hour,
                           wattsup_time.tm_min,
                           wattsup_time.tm_sec,
                           now.tm_wday, now.tm_yday, now.tm_isdst))
-    t = time.mktime(t) # convert time struct to UNIX timestamp float.
+    
+    data.time = time.mktime(t) # convert time struct to UNIX timestamp float.
     
     # Process volts (second column)
-    volts = float(line[1])
+    data.volts = float(line[1])
     
     # Process current (third column)
-    amps = float(line[2]) / 100
+    data.amps = float(line[2]) / 100
     
     # Power factor (fourth column)
-    pf = float(line[3]) / 10
+    data.power_factor = float(line[3]) / 10
     
-    return WULine(t, volts, amps, pf)
+    return data
 
-class WattsUp(object):
+
+class WattsUpError(Exception):
+    pass
+
+
+class WattsUp(threading.Thread):
     """Connects to a WattsUp meter over USB.  Instantiates a separate thread
     to read data from the WattsUp and places this data into a queue.
     Lines of data can be read in a non-blocking fashion using get_nowait.
     
     Attributes:
-        _p (subprocess.Popen): process
-        _q (Queue)
-        _t (Thread)
-        _about (threading.Event)
+        _wu_proc (subprocess.Popen): watts up process
+        queue (Queue)
+        _abort (threading.Event)
     """
     def __init__(self):
+        threading.Thread.__init__(self)
+        self.daemon = True
+        self.queue = None
+        self._wu_proc = None
+        self._abort = None
+        
+    def open(self):
+        """Open connection with Watts Up."""
+        
         ON_POSIX = 'posix' in sys.builtin_module_names
         cmd = "wattsup -t ttyUSB0 volts amps power-factor"
-        self._abort = Event()
-        self._p = subprocess.Popen(shlex.split(cmd), stdout=subprocess.PIPE,
-                                   stderr=subprocess.PIPE,
-                                   bufsize=4096, close_fds=ON_POSIX)
+        self._abort = threading.Event()
+        self._wu_proc = subprocess.Popen(shlex.split(cmd), 
+                                         stdout=subprocess.PIPE,
+                                         stderr=subprocess.STDOUT,
+                                         bufsize=4096, close_fds=ON_POSIX)
+        
         time.sleep(1) # wait to make sure wattsup stays alive
-        self._check_abort()
-        
-        self._q = Queue()
-        self._t = Thread(target=enqueue_output, args=(self._p.stdout,
-                                                      self._p.stderr,
-                                                      self._q,
-                                                      self._abort))
-        self._t.daemon = True # thread dies with the program
-        self._t.start()
-        print("Successfully initialised wattsup")
-        
-    def _check_abort(self):
-        abort = False
+        self._poll_process()
         if self._abort.is_set():
-            abort = True
+            self._print_wu_errors()
+            self.terminate()
+            raise WattsUpError("Failed to initialise wattsup")
         else:
-            self._p.poll()
-            if self._p.returncode is not None:
-                abort = True
-                
-        if abort:
-            self._abort_now()
+            self.queue = Queue()
+            print("Successfully initialised wattsup")
+        
+    def run(self):
+        """This will be run as a separate thread."""
+        self._poll_process()
+        if self._abort.is_set():
+            self.terminate()
+            return
+        
+        for line in iter(self._wu_proc.stdout.readline, b''):
+            self._poll_process()
+            if self._abort.is_set():
+                break
             
-    def _abort_now(self):
-        print("wattsup error:", self._p.stderr.read(),
-              self._p.stdout.read(), file=sys.stderr)
-        sys.exit(1)
-        
-    def get(self):
-        """Blocking"""
-        self._check_abort()
-        try:
-            line = self._q.get(timeout=5)
-        except Empty:
-            self._abort_now()
-        self._check_abort()
-        return _line_to_tuple(line)
-        
-    def get_nowait(self):
-        """
-        Non-blocking.
-        
-        Returns:
-            if a line of data is available then returns
-                a named tuple with the following fields:
-                - time (float): UNIX timestamp
-                - volts (float)
-                - amps (float)
-            else if no data is available then returns None.
-        """
-        self._check_abort()
-        try:
-            line = self._q.get_nowait()
-        except Empty:
-            return None
+            # Check for errors
+            if (line == "wattsup: [error] Reading final time stamp: Bad address" or
+                "Blech. Giving up on read: Bad address" in line):
+                print("ERROR:", line, file=sys.stderr)
+                continue                
+
+            self.queue.put(_parse_wu_line(line))
+                
+        self.terminate()
+
+    def _poll_process(self):
+        if self._wu_proc is None:
+            self._abort.set()
         else:
-            return _line_to_tuple(line) 
+            self._wu_proc.poll()
+            if self._wu_proc.returncode is not None: # wattsup proc has terminated
+                print("wattsup has terminated", file=sys.stderr)
+                self._abort.set()
+            
+    def _print_wu_errors(self):
+        print("wattsup error:", self._wu_proc.stdout.read(), file=sys.stderr)
         
     def get_last_nowait(self):
-        """Return the last (most recent) item on the queue."""
-        self._check_abort()
-        prev_data = self.get_nowait()        
+        """Return the last (most recent) item on the queue or None."""
+        prev_data = None
         while True:
-            data = self.get_nowait()
-            if data is None:
+            try:
+                data = self.queue.get_nowait()
+            except Empty:
                 return prev_data
             else:
                 prev_data = data
 
+    def terminate(self):
+        self._abort.set()
+        if self._wu_proc is not None:
+            self._wu_proc.poll()
+            if self._wu_proc.returncode is None: # process is still running
+                print("Terminating wattsup")
+                self._wu_proc.terminate()        
+
     def __del__(self):
-        self._p.poll()
-        if self._p.returncode is None: # process is still running
-            print("Terminating wattsup")
-            self._p.terminate()
+        self.terminate()
