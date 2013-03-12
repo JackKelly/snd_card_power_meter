@@ -360,15 +360,17 @@ def calibrate(adc_data_queue):
               config.CALIBRATION_FILENAME)
     
     wu = wattsup.WattsUp()
-
+    wu.open()
+    
     while True:
         wu_data = wu.get() # blocking
         
         # Now get ADC data recorded at wu_data.time
         adc_data = find_time(adc_data_queue, wu_data.time)
-        split_adc_data = split_channels(adc_data.data)
         
-        if split_adc_data:
+        if adc_data:
+            split_adc_data = split_channels(adc_data.data)            
+            
             # Voltage
             adc_v_rms = audioop.rms(split_adc_data.voltage, config.SAMPLE_WIDTH) 
             n_v_samples += 1

@@ -9,21 +9,14 @@ Requirements:
     - wattsup meter plugged into ttyUSB0
 
 Usage:
-    wu = WattsUp() # connect to WattsUp meter
-    data = wu.get_nowait() # non-blocking
-
-
+    wu = WattsUp() 
+    wu.open() # connect to WattsUp meter
+    data = wu.get() # blocking
 """
 
 from __future__ import print_function, division
-import subprocess, shlex, sys, time, threading
+import subprocess, shlex, sys, time, atexit
 from bunch import Bunch
-
-try:
-    from Queue import Queue, Empty
-except ImportError:
-    from queue import Queue, Empty # python 3.x
-    
 
 def _parse_wu_line(line):
     """Convert a line of text from the Watts Up.
@@ -33,12 +26,12 @@ def _parse_wu_line(line):
     
     Returns:
         A Bunch with fields:
-        - time (float): UNIX timestamp
+        - time (int): UNIX timestamp
         - volts (float)
         - amps (float)
         - power_factor (float)
-        
     """
+
     line = [word.strip(',') for word in line.split()]
     
     # Process time (first column)
@@ -61,7 +54,8 @@ def _parse_wu_line(line):
                           wattsup_time.tm_sec,
                           now.tm_wday, now.tm_yday, now.tm_isdst))
     
-    data.time = time.mktime(t) # convert time struct to UNIX timestamp float.
+    data.time = time.mktime(t) # convert time struct to UNIX timestamp
+    data.time = int(data.time) # the wattsup doesn't return sub-second times
     
     # Process volts (second column)
     data.volts = float(line[1])
@@ -79,96 +73,73 @@ class WattsUpError(Exception):
     pass
 
 
-class WattsUp(threading.Thread):
-    """Connects to a WattsUp meter over USB.  Instantiates a separate thread
-    to read data from the WattsUp and places this data into a queue.
-    Lines of data can be read in a non-blocking fashion using get_nowait.
+class WattsUp(object):
+    """Connects to a WattsUp meter over USB.
     
     Attributes:
-        _wu_proc (subprocess.Popen): watts up process
-        queue (Queue)
-        _abort (threading.Event)
+        _wu_process (subprocess.Popen): watts up process
     """
     def __init__(self):
-        threading.Thread.__init__(self)
-        self.daemon = True
-        self.queue = None
-        self._wu_proc = None
-        self._abort = None
+        self._wu_process = None
         
     def open(self):
         """Open connection with Watts Up."""
         
+        # Check if an old wattsup process is already running
+        try:
+            pid = subprocess.check_output(['pidof', '-x', 'wattsup'])
+        except subprocess.CalledProcessError:
+            pass
+        else:
+            raise WattsUpError("wattsup is already running!\n"
+                  "Please kill it and then try to run WattsUp.open() again.\n"
+                  "PID of existing wattsup process = {}".format(pid))
+            
         ON_POSIX = 'posix' in sys.builtin_module_names
-        cmd = "wattsup -t ttyUSB0 volts amps power-factor"
-        self._abort = threading.Event()
-        self._wu_proc = subprocess.Popen(shlex.split(cmd), 
-                                         stdout=subprocess.PIPE,
-                                         stderr=subprocess.STDOUT,
-                                         bufsize=4096, close_fds=ON_POSIX)
+        CMD = "wattsup -t ttyUSB0 volts amps power-factor"
+        self._wu_process = subprocess.Popen(shlex.split(CMD), 
+                                            stdout=subprocess.PIPE,
+                                            stderr=subprocess.STDOUT,
+                                            bufsize=4096, close_fds=ON_POSIX)
         
         time.sleep(1) # wait to make sure wattsup stays alive
-        self._poll_process()
-        if self._abort.is_set():
-            self._print_wu_errors()
-            self.terminate()
-            raise WattsUpError("Failed to initialise wattsup")
+        self._check_wattsup_is_running()
+        atexit.register(self.terminate)
+        print("Successfully initialised wattsup")
+
+    def _check_wattsup_is_running(self):
+        if self._wu_process is None:
+            raise WattsUpError("_wu_process has not been started!")
         else:
-            self.queue = Queue()
-            print("Successfully initialised wattsup")
+            self._wu_process.poll()
+            if self._wu_process.returncode is not None:
+                # process has terminated so stdout will have an EOF so
+                # stdout.read() will return.
+                print("wattsup error:", self._wu_process.stdout.read(),
+                      file=sys.stderr)
+                raise WattsUpError("ERROR: wattsup has died")
         
-    def run(self):
-        """This will be run as a separate thread."""
-        self._poll_process()
-        if self._abort.is_set():
-            self.terminate()
+    def get(self):
+        # Check wattsup process is still alive, if not then raise WattsUpError
+        self._check_wattsup_is_running()
+        
+        # Get next line from wattsup
+        line = self._wu_process.stdout.readline()
+        
+        # Check for errors
+        if (line == "wattsup: [error] Reading final time stamp: Bad address"
+            or "Blech. Giving up on read: Bad address" in line):
+            print("ERROR:", line, file=sys.stderr)
             return
-        
-        for line in iter(self._wu_proc.stdout.readline, b''):
-            self._poll_process()
-            if self._abort.is_set():
-                break
-            
-            # Check for errors
-            if (line == "wattsup: [error] Reading final time stamp: Bad address" or
-                "Blech. Giving up on read: Bad address" in line):
-                print("ERROR:", line, file=sys.stderr)
-                continue                
-
-            self.queue.put(_parse_wu_line(line))
-                
-        self.terminate()
-
-    def _poll_process(self):
-        if self._wu_proc is None:
-            self._abort.set()
         else:
-            self._wu_proc.poll()
-            if self._wu_proc.returncode is not None: # wattsup proc has terminated
-                print("wattsup has terminated", file=sys.stderr)
-                self._abort.set()
-            
-    def _print_wu_errors(self):
-        print("wattsup error:", self._wu_proc.stdout.read(), file=sys.stderr)
-        
-    def get_last_nowait(self):
-        """Return the last (most recent) item on the queue or None."""
-        prev_data = None
-        while True:
-            try:
-                data = self.queue.get_nowait()
-            except Empty:
-                return prev_data
-            else:
-                prev_data = data
+            return _parse_wu_line(line)
 
     def terminate(self):
-        self._abort.set()
-        if self._wu_proc is not None:
-            self._wu_proc.poll()
-            if self._wu_proc.returncode is None: # process is still running
+        if self._wu_process is not None:
+            self._wu_process.poll()
+            if self._wu_process.returncode is None: # process is still running
                 print("Terminating wattsup")
-                self._wu_proc.terminate()        
+                self._wu_process.terminate()        
 
     def __del__(self):
         self.terminate()
