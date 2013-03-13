@@ -18,11 +18,11 @@ from __future__ import print_function, division
 import subprocess, shlex, sys, time, atexit
 from bunch import Bunch
 
-def _parse_wu_line(line):
+def _parse_wu_line(rawline):
     """Convert a line of text from the Watts Up.
     
     Args:
-        line (str)
+        rawline (str)
     
     Returns:
         A Bunch with fields:
@@ -32,7 +32,7 @@ def _parse_wu_line(line):
         - power_factor (float)
     """
 
-    line = [word.strip(',') for word in line.split()]
+    line = [word.strip(',') for word in rawline.split()]
     
     # Process time (first column)
     try:
@@ -40,6 +40,8 @@ def _parse_wu_line(line):
     except ValueError:
         # If we failed to convert the time then this is very unlikely
         # to be a valid line of data.
+        print("ERROR reading wattsup line: '{}'"
+              .format(rawline), file=sys.stderr)
         return None
 
     data = Bunch() # what we return
@@ -122,17 +124,8 @@ class WattsUp(object):
     def get(self):
         # Check wattsup process is still alive, if not then raise WattsUpError
         self._check_wattsup_is_running()
-        
-        # Get next line from wattsup
-        line = self._wu_process.stdout.readline()
-        
-        # Check for errors
-        if (line == "wattsup: [error] Reading final time stamp: Bad address"
-            or "Blech. Giving up on read: Bad address" in line):
-            print("ERROR:", line, file=sys.stderr)
-            return
-        else:
-            return _parse_wu_line(line)
+        line = self._wu_process.stdout.readline()        
+        return _parse_wu_line(line)
 
     def terminate(self):
         if self._wu_process is not None:
