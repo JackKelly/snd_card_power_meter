@@ -15,7 +15,7 @@ Usage:
 """
 
 from __future__ import print_function, division
-import subprocess, shlex, sys, time, atexit
+import subprocess, shlex, sys, time, atexit, os
 from bunch import Bunch
 
 def _parse_wu_line(rawline):
@@ -88,14 +88,15 @@ class WattsUp(object):
         """Open connection with Watts Up."""
         
         # Check if an old wattsup process is already running
-        try:
-            pid = subprocess.check_output(['pidof', '-x', 'wattsup'])
-        except subprocess.CalledProcessError:
-            pass
-        else:
-            raise WattsUpError("wattsup is already running!\n"
-                  "Please kill it and then try to run WattsUp.open() again.\n"
-                  "PID of existing wattsup process = {}".format(pid))
+        RETRIES = 5
+        for _ in range(RETRIES):
+            try:
+                pid = subprocess.check_output(['pidof', '-sx', 'wattsup'])
+            except subprocess.CalledProcessError:
+                break
+            else:
+                print("WARNING: wattsup is already running.  Attempting to kill it...")
+                os.kill(int(pid), 1)
             
         ON_POSIX = 'posix' in sys.builtin_module_names
         CMD = "wattsup -t ttyUSB0 volts amps power-factor"

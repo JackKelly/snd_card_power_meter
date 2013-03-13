@@ -19,17 +19,20 @@ Log data from Watts Up using
 from __future__ import print_function, division
 import snd_card_power_meter.scpm as scpm
 from snd_card_power_meter.sampler import Sampler
+from snd_card_power_meter.wattsup import WattsUp
 
 def main():
     sampler = Sampler()
-        
+    wu = WattsUp()
+    
     try:
         sampler.open()
         sampler.start()        
-        scpm.calibrate(sampler.adc_data_queue)
+        scpm.calibrate(sampler.adc_data_queue, wu)
     except KeyboardInterrupt:
         pass
-
+    
+    wu.terminate()    
     sampler.terminate()
 
 if __name__ == '__main__':
