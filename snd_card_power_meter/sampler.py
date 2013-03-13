@@ -17,12 +17,15 @@ class Sampler(threading.Thread):
     def __init__(self):
         threading.Thread.__init__(self)
         self._abort = None
+        self._not_reading_audio = None
         self._audio_stream = None
         self._port_audio = None
         self.adc_data_queue = None        
         
     def open(self):
         self._abort = threading.Event()
+        self._safe_to_stop_audio_stream = threading.Event()
+        self._safe_to_stop_audio_stream.set()
         self.adc_data_queue = Queue()
         self._port_audio = pyaudio.PyAudio()
         self._audio_stream = self._port_audio.open(
@@ -48,16 +51,20 @@ class Sampler(threading.Thread):
         """
         t = time.time()
         frames = []
+        RETRIES = 5
         for _ in range(config.N_READS_PER_QUEUE_ITEM):
-            for __ in range(5):
+            for __ in range(RETRIES):
                 if self._abort.is_set():
                     return
                 
+                self._safe_to_stop_audio_stream.clear()
                 try:
                     data = self._audio_stream.read(config.FRAMES_PER_BUFFER)
                 except IOError, e:
+                    self._safe_to_stop_audio_stream.set()
                     print("ERROR: ", str(e), file=sys.stderr)
                 else:
+                    self._safe_to_stop_audio_stream.set()
                     frames.append(data)
                     break
     
@@ -67,6 +74,8 @@ class Sampler(threading.Thread):
     def terminate(self):
         print("Terminating Sampler")
         self._abort.set()
+        
+        self._safe_to_stop_audio_stream.wait()
         
         if self._audio_stream is not None:
             self._audio_stream.stop_stream()

@@ -338,7 +338,7 @@ def calibrate(adc_data_queue, wu):
     """
     Args:
         adc_data_queue (Queue)
-        wu (WattsUp): not opened yet
+        wu (WattsUp): must already be opened
     """
     
     v_acumulator = np.float64(0.0) # accumulator for voltage
@@ -359,8 +359,6 @@ def calibrate(adc_data_queue, wu):
     except ConfigParser.DuplicateSectionError:
         print("Overwriting existing calibration file",
               config.CALIBRATION_FILENAME)
-
-    wu.open()
     
     while True:
         wu_data = wu.get() # blocking
