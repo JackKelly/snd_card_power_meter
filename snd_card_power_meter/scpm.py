@@ -75,7 +75,7 @@ def convert_adc_to_numpy_float(split_adc_data):
     return voltage, current    
 
 
-def shift_phase(voltage, current, calibration):
+def shift_phase(voltage, current, calibration=None):
     """Shift voltage and current by PHASE_DIFF number of samples.
     The aim is to correct for phase errors caused by the measurement system.
     
@@ -83,7 +83,10 @@ def shift_phase(voltage, current, calibration):
         voltage, current (numpy arrays)
         calibration: Bunch with fields:
             - phase_diff
-    """    
+    """
+    if calibration is None or calibration.__dict__.get("phase_diff") is None:
+        return voltage, current
+    
     pd = abs(int(round(calibration.phase_diff)))
     if pd == 0:
         pass # do nothing if the phase difference is zero
@@ -97,12 +100,35 @@ def shift_phase(voltage, current, calibration):
     return voltage, current
 
 
-def calculate_power(split_adc_data, calibration):
+def calculate_adc_rms(split_adc_data):
+    """
+    Args:
+        split_adc_data: Bunch with fields:
+        - voltage (binary string): raw ADC data
+        - current (binary string): raw ADC data    
+    
+    Returns:
+        Bunch with fields:
+        - adc_v_rms (float)
+        - adc_i_rms (float)    
+    """
+    data = Bunch()
+    data.adc_v_rms = audioop.rms(split_adc_data.voltage, config.SAMPLE_WIDTH)
+    data.adc_i_rms = audioop.rms(split_adc_data.current, config.SAMPLE_WIDTH)
+    print("adc v_rms =", data.adc_v_rms, ", adc i_rms = ", data.adc_i_rms)
+    return data
+
+
+def calculate_calibrated_power(split_adc_data, adc_rms, calibration):
     """
     Args:
         split_adc_data: Bunch with fields:
         - voltage (binary string): raw ADC data
         - current (binary string): raw ADC data
+
+        adc_rms: Bunch with fields:
+        - adc_v_rms (float)
+        - adc_i_rms (float)
         
         calibration: Bunch with fields:
         - watts_per_adc_step (float)
@@ -111,38 +137,36 @@ def calculate_power(split_adc_data, calibration):
         
     Returns:
         Bunch with fields:
-        - real_power (float)
-        - apparent_power (float)
-        - v_rms (float)
+        - real_power (float): watts
+        - apparent_power (float): VA
+        - volts_rms (float): volts
+        - amps_rms (float): amps
+        - power_factor (float)
     """
-    voltage, current = convert_adc_to_numpy_float(split_adc_data)
-    voltage, current = shift_phase(voltage, current, calibration)
     
     data = Bunch()
+    voltage, current = convert_adc_to_numpy_float(split_adc_data)
+    voltage, current = shift_phase(voltage, current, calibration)
     
     inst_power = voltage * current # instantaneous power
     data.real_power = inst_power.mean() * calibration.watts_per_adc_step
     if data.real_power < 0:
         data.real_power = 0
     
-    data.v_rms = audioop.rms(split_adc_data.voltage, config.SAMPLE_WIDTH)
-    data.v_rms *= calibration.volts_per_adc_step
-    i_rms = audioop.rms(split_adc_data.current, config.SAMPLE_WIDTH)
-    i_rms *= calibration.amps_per_adc_step
-    data.apparent_power = data.v_rms * i_rms
+    data.volts_rms = adc_rms.adc_v_rms * calibration.volts_per_adc_step
+    data.amps_rms  = adc_rms.adc_i_rms * calibration.amps_per_adc_step
+    data.apparent_power = data.volts_rms * data.amps_rms
     
-    power_factor = data.real_power / data.apparent_power
+    data.power_factor = data.real_power / data.apparent_power
     
     # TODO: leading / lagging phase
     print("real = {:4.2f}W, apparent = {:4.2f}VA, "
           "PF = {:1.3f}, v_rms = {:4.2f}V, i_rms = {:4.4f}A"
-          .format(data.real_power, data.apparent_power, power_factor,
-                  data.v_rms * calibration.volts_per_adc_step, 
-                  i_rms * calibration.amps_per_adc_step))
-    print("raw v_rms =", data.v_rms, ", raw i_rms = ", i_rms)
+          .format(data.real_power, data.apparent_power, data.power_factor,
+                  data.volts_rms, data.amps_rms))
     
     return data
-  
+
 
 def plot(voltage, current, calibration=None):
     """
@@ -300,7 +324,7 @@ def get_phase_diff(split_adc_data, tolerance):
     return np.mean(phase_diffs)
 
 
-def load_calibration_file():
+def load_calibration_file(calibration_parser=None):
     """Loads config.CALIBRATION_FILENAME.
     
     Returns a Bunch with fields:
@@ -309,17 +333,18 @@ def load_calibration_file():
         - phase_diff (float)
         - watts_per_adc_step (float)
     """
-    
-    config_parser = ConfigParser.RawConfigParser()
-    config_parser.read(config.CALIBRATION_FILENAME)
+    if calibration_parser is None:
+        calibration_parser = ConfigParser.RawConfigParser()
+        calibration_parser.read(config.CALIBRATION_FILENAME)
+        
     calib = Bunch()
     calib_section = "Calibration"
     try:
-        calib.volts_per_adc_step = config_parser.getfloat(calib_section, 
+        calib.volts_per_adc_step = calibration_parser.getfloat(calib_section, 
                                                           "volts_per_adc_step")
-        calib.amps_per_adc_step = config_parser.getfloat(calib_section,
+        calib.amps_per_adc_step = calibration_parser.getfloat(calib_section,
                                                          "amps_per_adc_step")
-        calib.phase_diff = config_parser.getfloat(calib_section,
+        calib.phase_diff = calibration_parser.getfloat(calib_section,
                                                   "phase_difference")
     except (ConfigParser.NoOptionError, ConfigParser.NoSectionError) as e:
         print("Error loading option from config file", str(e), file=sys.stderr)
@@ -347,18 +372,17 @@ def calibrate(adc_data_queue, wu):
     n_v_samples = 0 # number of voltage samples
     n_i_samples = 0 # number of current samples
     n_pd_samples = 0 # number of phase diff samples
-    av_i_calibration = np.float64(0.0) # average current calibration
-    av_v_calibration = np.float64(0.0) # average voltage calibration
-    adc_i_rms = 0.0
-    av_pd = np.float64(0.0) # average phase diff
     
-    config_parser = ConfigParser.RawConfigParser()
-    config_parser.read(config.CALIBRATION_FILENAME)
+    calibration_parser = ConfigParser.RawConfigParser()
+    calibration_parser.read(config.CALIBRATION_FILENAME)
     try:
-        config_parser.add_section("Calibration")
+        calibration_parser.add_section("Calibration")
     except ConfigParser.DuplicateSectionError:
         print("Overwriting existing calibration file",
               config.CALIBRATION_FILENAME)
+        calib = load_calibration_file(calibration_parser)
+    else:
+        calib = Bunch()
     
     while True:
         wu_data = wu.get() # blocking
@@ -367,20 +391,21 @@ def calibrate(adc_data_queue, wu):
         adc_data = find_time(adc_data_queue, wu_data.time)
         
         if adc_data:
-            split_adc_data = split_channels(adc_data.data)            
+            split_adc_data = split_channels(adc_data.data)
+            adc_rms = calculate_adc_rms(split_adc_data)
             
             # Voltage
-            adc_v_rms = audioop.rms(split_adc_data.voltage, config.SAMPLE_WIDTH) 
             n_v_samples += 1
-            v_acumulator += wu_data.volts / adc_v_rms
-            av_v_calibration = v_acumulator / n_v_samples
+            v_acumulator += wu_data.volts / adc_rms.adc_v_rms
+            calib.volts_per_adc_step = v_acumulator / n_v_samples
             
-            # Current
-            adc_i_rms = audioop.rms(split_adc_data.current, config.SAMPLE_WIDTH)            
+            # Current           
             if wu_data.amps > 0.1:
                 n_i_samples += 1 
-                i_acumulator += wu_data.amps / adc_i_rms
-                av_i_calibration = i_acumulator / n_i_samples
+                i_acumulator += wu_data.amps / adc_rms.adc_i_rms
+                calib.amps_per_adc_step = i_acumulator / n_i_samples
+                calib.watts_per_adc_step = (calib.amps_per_adc_step *
+                                            calib.volts_per_adc_step)
                 
                 # Phase difference calc
                 if wu_data.power_factor > 0.97:
@@ -392,11 +417,10 @@ def calibrate(adc_data_queue, wu):
                     else:
                         processing_pf = True
                         n_pd_samples += 1
-                        av_pd = pd_acumulator / n_pd_samples
-                        print("Average phase diff =", av_pd)
-                        print(av_pd.dtype)
-                        config_parser.set("Calibration", "phase_difference",
-                                          av_pd)
+                        calib.phase_diff = pd_acumulator / n_pd_samples
+                        print("Average phase diff =", calib.phase_diff)
+                        calibration_parser.set("Calibration", "phase_difference",
+                                          calib.phase_diff)
                 else:
                     processing_pf = False
 
@@ -409,24 +433,20 @@ def calibrate(adc_data_queue, wu):
                 print("Not sampling amps because the WattsUp reading too low.")    
             
             print("WattsUp:    volts = {:>03.2f}, amps = {:>02.2f}, \n"
-                  "Calculated: volts = {:>03.2f}, amps = {:>02.2f}, \n"
-                  "Raw ADC: voltage = {}, current = {}, \n"
-                  "v_calibration = {}, i_calibration = {}, \n"
-                  "adc time = {}, watts up time = {}, time diff = {:1.3f}s \n"
+                  "adc time = {}, watts up time = {}, time diff = {:1.3f}s"
                   .format(wu_data.volts, wu_data.amps,
-                          adc_v_rms * av_v_calibration,
-                          adc_i_rms * av_i_calibration,
-                          adc_v_rms, adc_i_rms,
-                          av_v_calibration, av_i_calibration,
                           adc_data.time, wu_data.time,
                           adc_data.time - wu_data.time))
+            
+            calculate_calibrated_power(split_adc_data, adc_rms, calib)
+            print("")
 
-            config_parser.set("Calibration", "volts_per_adc_step",
-                              av_v_calibration)
-            config_parser.set("Calibration", "amps_per_adc_step",
-                              av_i_calibration)
+            calibration_parser.set("Calibration", "volts_per_adc_step",
+                              calib.volts_per_adc_step)
+            calibration_parser.set("Calibration", "amps_per_adc_step",
+                              calib.amps_per_adc_step)
             with open(config.CALIBRATION_FILENAME, "wb") as calibfile:
-                config_parser.write(calibfile)
+                calibration_parser.write(calibfile)
         else:
             print("Could not find match for", wu_data.time, file=sys.stderr)
             time.sleep(config.RECORD_SECONDS * 2)

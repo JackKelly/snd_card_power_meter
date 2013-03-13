@@ -24,7 +24,10 @@ class Recorder(object):
             split_adc_data = scpm.split_channels(adc_data.data)
             
             # Calculate real power, apparent power, v_rms and write to disk
-            power = scpm.calculate_power(split_adc_data, calibration)
+            adc_rms = scpm.calculate_adc_rms(split_adc_data)
+            power = scpm.calculate_calibrated_power(split_adc_data, adc_rms, 
+                                                    calibration)
+
             with open(config.DATA_FILENAME, 'a') as data_file:
                 data_file.write('{:.1f} {:.2f} {:.2f} {:.2f}\n'
                                 .format(adc_data.time, power.real_power,
