@@ -100,14 +100,12 @@ def shift_phase(voltage, current, calibration=None):
     return voltage, current
 
 
-def calculate_adc_rms(split_adc_data, display=False):
+def calculate_adc_rms(split_adc_data):
     """
     Args:
         split_adc_data: Bunch with fields:
         - voltage (binary string): raw ADC data
         - current (binary string): raw ADC data
-        
-        display (boolean): Optional. Set to True to print RMS values to screen.
     
     Returns:
         Bunch with fields:
@@ -117,14 +115,10 @@ def calculate_adc_rms(split_adc_data, display=False):
     data = Bunch()
     data.adc_v_rms = audioop.rms(split_adc_data.voltage, config.SAMPLE_WIDTH)
     data.adc_i_rms = audioop.rms(split_adc_data.current, config.SAMPLE_WIDTH)
-    if display:
-        print("adc_v_rms = {}, adc_i_rms = {}"
-              .format(data.adc_v_rms, data.adc_i_rms))
     return data
 
 
-def calculate_calibrated_power(split_adc_data, adc_rms,
-                               calibration, display=False):
+def calculate_calibrated_power(split_adc_data, adc_rms, calibration):
     """
     Args:
         split_adc_data: Bunch with fields:
@@ -139,8 +133,6 @@ def calculate_calibrated_power(split_adc_data, adc_rms,
         - watts_per_adc_step (float)
         - volts_per_adc_step (float)
         - amps_per_adc_step (float)
-        
-        display (boolean): Optional. Set to True to print RMS values to screen.
         
     Returns:
         Bunch with fields:
@@ -165,13 +157,6 @@ def calculate_calibrated_power(split_adc_data, adc_rms,
     data.apparent_power = data.volts_rms * data.amps_rms
     
     data.power_factor = data.real_power / data.apparent_power
-    
-    # TODO: leading / lagging phase
-    if display:
-        print("real = {:4.2f}W, apparent = {:4.2f}VA, "
-              "PF = {:1.3f}, v_rms = {:4.2f}V, i_rms = {:4.4f}A"
-              .format(data.real_power, data.apparent_power, data.power_factor,
-                      data.volts_rms, data.amps_rms))
     
     return data
 
@@ -367,6 +352,30 @@ def load_calibration_file(calibration_parser=None):
     return calib
 
 
+def print_power(calcd_data, wu_data=None):
+    def diff(a, b):
+        return abs(a-b) / max(a,b)
+    
+    print("         VOLTS  |   AMPS |     REAL |  APPARENT |  PF ")
+    print("   SCPM: {:>6.1f} | {:>6.3f} | {:>8.1f} |  {:>8.2f} | {:>3.2f}"
+          .format(calcd_data.volts_rms, calcd_data.amps_rms, 
+                  calcd_data.real_power, calcd_data.apparent_power, 
+                  calcd_data.power_factor))
+    
+    if wu_data is not None:
+        print("WattsUp: {:>6.1f} | {:>6.3f} | {:>8.1f} |  {:>8.2f} | {:>3.2f}"
+              .format(wu_data.volts_rms, wu_data.amps_rms, 
+                      wu_data.real_power, wu_data.apparent_power, 
+                      wu_data.power_factor))
+        
+        print("   Diff: {:>6.3%} | {:>6.3%} |   {:>6.3%} |    {:>6.3%} | {:>6.3%}"
+              .format(diff(calcd_data.volts_rms, wu_data.volts_rms),
+                      diff(calcd_data.amps_rms, wu_data.amps_rms),
+                      diff(calcd_data.real_power, wu_data.real_power),
+                      diff(calcd_data.apparent_power, wu_data.apparent_power),
+                      diff(calcd_data.power_factor, wu_data.power_factor)))
+
+
 def calibrate(adc_data_queue, wu):
     """
     Args:
@@ -404,13 +413,13 @@ def calibrate(adc_data_queue, wu):
             
             # Voltage
             n_v_samples += 1
-            v_acumulator += wu_data.volts / adc_rms.adc_v_rms
+            v_acumulator += wu_data.volts_rms / adc_rms.adc_v_rms
             calib.volts_per_adc_step = v_acumulator / n_v_samples
             
             # Current           
-            if wu_data.amps > 0.1:
+            if wu_data.amps_rms > 0.1:
                 n_i_samples += 1 
-                i_acumulator += wu_data.amps / adc_rms.adc_i_rms
+                i_acumulator += wu_data.amps_rms / adc_rms.adc_i_rms
                 calib.amps_per_adc_step = i_acumulator / n_i_samples
                 calib.watts_per_adc_step = (calib.amps_per_adc_step *
                                             calib.volts_per_adc_step)
@@ -443,22 +452,11 @@ def calibrate(adc_data_queue, wu):
             calcd_data = calculate_calibrated_power(split_adc_data, 
                                                     adc_rms, calib)
             
-            print("         VOLTS  |   AMPS |     REAL |  APPARENT |  PF ")
-            print("WattsUp: {:>6.1f} | {:>6.3f} | {:>8.1f} |  {:>8.2f} | {:>3.2f}"
-                  .format(wu_data.volts, wu_data.amps, wu_data.real_power,
-                          wu_data.apparent_power, wu_data.power_factor))
-            print("   SCPM: {:>6.1f} | {:>6.3f} | {:>8.1f} |  {:>8.2f} | {:>3.2f}"
-                  .format(calcd_data.volts_rms, calcd_data.amps_rms, 
-                          calcd_data.real_power,
-                          calcd_data.apparent_power, calcd_data.power_factor))
-                  
-#                  
-#                  "adc time = {}, watts up time = {}, time diff = {:1.3f}s"
-#                  .format(wu_data.volts, wu_data.amps,
-#                          adc_data.time, wu_data.time,
-#                          adc_data.time - wu_data.time))
+            print_power(calcd_data, wu_data)
             
-            print("")
+            print("adc time = {}, watts up time = {}, time diff = {:1.3f}s \n"
+                  .format(adc_data.time, wu_data.time,
+                          adc_data.time - wu_data.time))
 
             calibration_parser.set("Calibration", "volts_per_adc_step",
                               calib.volts_per_adc_step)

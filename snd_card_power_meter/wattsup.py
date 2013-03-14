@@ -27,8 +27,8 @@ def _parse_wu_line(rawline):
     Returns:
         A Bunch with fields:
         - time (int): UNIX timestamp
-        - volts (float)
-        - amps (float)
+        - volts_rms (float)
+        - amps_rms (float)
         - power_factor (float)
         - real_power (float)
         - apparent_power (float)
@@ -39,11 +39,11 @@ def _parse_wu_line(rawline):
     # Process time (first column)
     try:
         wattsup_time = time.strptime(line[0], "[%H:%M:%S]")
-    except ValueError:
+    except ValueError as e:
         # If we failed to convert the time then this is very unlikely
         # to be a valid line of data.
-        print("ERROR reading wattsup line: '{}'"
-              .format(rawline), file=sys.stderr)
+        print("ERROR reading wattsup line: '{}' \nexception = {}"
+              .format(rawline, str(e)), file=sys.stderr)
         return None
 
     data = Bunch() # what we return
@@ -61,11 +61,16 @@ def _parse_wu_line(rawline):
     data.time = time.mktime(t) # convert time struct to UNIX timestamp
     data.time = int(data.time) # the wattsup doesn't return sub-second times
 
-    data.real_power = float(line[1])
-    data.volts = float(line[2])
-    data.amps = float(line[3]) / 100
-    data.power_factor = float(line[4]) / 10
-    data.apparent_power = data.real_power / data.power_factor
+    try:
+        data.real_power = float(line[1])
+        data.volts_rms = float(line[2])
+        data.amps_rms = float(line[3]) / 100
+        data.power_factor = float(line[4]) / 10
+        data.apparent_power = data.real_power / data.power_factor
+    except ValueError as e:
+        print("ERROR reading wattsup line: '{}' \nexception = {}"
+              .format(rawline, str(e)), file=sys.stderr)
+        return None        
 
     return data
 
