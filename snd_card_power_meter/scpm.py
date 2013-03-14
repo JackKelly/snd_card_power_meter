@@ -89,8 +89,8 @@ def shift_phase(voltage, current, calibration=None):
     
     pd = abs(int(round(calibration.phase_diff)))
     if pd == 0:
-        pass # do nothing if the phase difference is zero
-    elif calibration.phase_diff < 0: # current leads voltage
+        pass
+    elif calibration.phase_diff > 0: # I leads V
         voltage = voltage[pd:]
         current = current[:-pd]
     else:
@@ -157,6 +157,16 @@ def calculate_calibrated_power(split_adc_data, adc_rms, calibration):
     data.apparent_power = data.volts_rms * data.amps_rms
     
     data.power_factor = data.real_power / data.apparent_power
+    
+    # leading or lagging?
+    try:
+        phase_diff = get_phase_diff(split_adc_data) - calibration.phase_diff
+    except ZeroCrossingError as e:
+        print(str(e), file=sys.stderr)
+    else:
+        if phase_diff < 0: # V leads I
+            # TODO: will get insane answers for things like my LCD. What to do?
+            pass
     
     return data
 
@@ -279,9 +289,12 @@ def get_phase_diff(split_adc_data, tolerance=config.FRAME_RATE/110):
     
     Returns:
         The mean number of samples by which the zero crossings of the current
-        and voltage waveforms differ.  Negative means current leads voltage.
+        and voltage waveforms differ.  
+        Positive means current leads voltage ("leading" AKA capacitive)
+        Negative means voltage leads current ("lagging" AKA inductive)
+        http://sg.answers.yahoo.com/question/index?qid=20111107044946AACm7c8
     """ 
-    
+
     voltage, current = convert_adc_to_numpy_float(split_adc_data)    
     vzc = positive_zero_crossings(voltage) # vzc = voltage zero crossings
     izc = positive_zero_crossings(current) # izc = current zero crossings
@@ -310,7 +323,7 @@ def get_phase_diff(split_adc_data, tolerance=config.FRAME_RATE/110):
         else:
             i_offset += 1
             
-    print("phase diff = {:.1f} samples, std = {:.3f}".format(
+    print("phase diff = {:.1f} mean samples, std = {:.3f} samples".format(
                                                        np.mean(phase_diffs),
                                                        np.std(phase_diffs)))
     
