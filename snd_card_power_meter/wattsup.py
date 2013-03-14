@@ -30,6 +30,8 @@ def _parse_wu_line(rawline):
         - volts (float)
         - amps (float)
         - power_factor (float)
+        - real_power (float)
+        - apparent_power (float)
     """
 
     line = [word.strip(',') for word in rawline.split()]
@@ -58,16 +60,13 @@ def _parse_wu_line(rawline):
     
     data.time = time.mktime(t) # convert time struct to UNIX timestamp
     data.time = int(data.time) # the wattsup doesn't return sub-second times
-    
-    # Process volts (second column)
-    data.volts = float(line[1])
-    
-    # Process current (third column)
-    data.amps = float(line[2]) / 100
-    
-    # Power factor (fourth column)
-    data.power_factor = float(line[3]) / 10
-    
+
+    data.real_power = float(line[1])
+    data.volts = float(line[2])
+    data.amps = float(line[3]) / 100
+    data.power_factor = float(line[4]) / 10
+    data.apparent_power = data.real_power / data.power_factor
+
     return data
 
 
@@ -99,7 +98,7 @@ class WattsUp(object):
                 os.kill(int(pid), 1)
             
         ON_POSIX = 'posix' in sys.builtin_module_names
-        CMD = "wattsup -t ttyUSB0 volts amps power-factor"
+        CMD = "wattsup -t ttyUSB0 watts volts amps power-factor"
         self._wu_process = subprocess.Popen(shlex.split(CMD), 
                                             stdout=subprocess.PIPE,
                                             stderr=subprocess.STDOUT,

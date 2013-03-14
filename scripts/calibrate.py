@@ -33,8 +33,11 @@ def main():
         scpm.calibrate(sampler.adc_data_queue, wu)
     except KeyboardInterrupt:
         pass
-    except Exception as e:
-        print(str(e), file=sys.stderr)
+    except Exception:
+        print("Exception!  Terminating.", file=sys.stderr)
+        wu.terminate()
+        sampler.terminate()
+        raise
     
     wu.terminate()
     sampler.terminate()
