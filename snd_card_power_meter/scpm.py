@@ -83,7 +83,9 @@ def shift_phase(voltage, current, calibration=None):
         calibration: Bunch with fields:
             - phase_diff
     """
-    if calibration is None or calibration.__dict__.get("phase_diff") is None:
+    if (calibration is None or 
+        calibration.__dict__.get("phase_diff") is None or
+        np.isnan(calibration.phase_diff)):
         return voltage, current
     
     pd = abs(int(round(calibration.phase_diff)))
@@ -158,7 +160,7 @@ def calculate_calibrated_power(split_adc_data, adc_rms, calibration):
     inst_power = voltage * current # instantaneous power
     data.real_power = inst_power.mean() * calibration.watts_per_adc_step
     if data.real_power < 0:
-        log.warn("real_power is NEGATIVE! {:.3f}V".format(data.real_power))
+        log.warn("real_power is NEGATIVE! {:.3f}W".format(data.real_power))
         data.real_power = 0
     
     # Apparent power
@@ -432,7 +434,12 @@ def load_calibration_file(calibration_parser=None):
 
 def print_power(calcd_data, wu_data=None):
     def diff(a, b):
-        return abs(a-b) / max(a,b)
+        try:
+            difference = abs(a-b) / max(a,b)
+        except ZeroDivisionError:
+            return 0
+        else:
+            return difference
     
     if calcd_data.phase_diff is None:
         leading_or_lagging = "unknown"
@@ -540,11 +547,18 @@ def calibrate(adc_data_queue, wu):
 
             else:
                 print("Not sampling amps because the WattsUp reading too low.")    
-                        
-            calcd_data = calculate_calibrated_power(split_adc_data, 
-                                                    adc_rms, calib)
-            
-            print_power(calcd_data, wu_data)
+
+            # Do this in a try... except so we can handle case when
+            # calib.amps_per_adc_step is not yet set.
+            try:
+                calcd_data = calculate_calibrated_power(split_adc_data, 
+                                                        adc_rms, calib)
+            except AttributeError as e:
+                log.debug(str(e))
+            else:
+                print_power(calcd_data, wu_data)
+                calibration_parser.set("Calibration", "amps_per_adc_step",
+                                       calib.amps_per_adc_step)
             
             print("adc time = {}, watts up time = {}, time diff = {:1.3f}s \n"
                   .format(adc_data.time, wu_data.time,
@@ -552,8 +566,6 @@ def calibrate(adc_data_queue, wu):
 
             calibration_parser.set("Calibration", "volts_per_adc_step",
                               calib.volts_per_adc_step)
-            calibration_parser.set("Calibration", "amps_per_adc_step",
-                              calib.amps_per_adc_step)
             with open(config.CALIBRATION_FILENAME, "wb") as calibfile:
                 calibration_parser.write(calibfile)
         else:

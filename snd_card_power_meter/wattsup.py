@@ -41,11 +41,11 @@ def _parse_wu_line(rawline):
     # Process time (first column)
     try:
         wattsup_time = time.strptime(line[0], "[%H:%M:%S]")
-    except ValueError as e:
+    except (ValueError, IndexError) as e:
         # If we failed to convert the time then this is very unlikely
         # to be a valid line of data.
-        log.warn("ERROR reading wattsup line: '{}' \nexception = {}"
-                 .format(rawline, str(e)))
+        log.warn("ERROR reading wattsup line: '{}' \n"
+                 "exception = {}".format(rawline, str(e)))
         return None
 
     data = Bunch() # what we return
@@ -114,7 +114,7 @@ class WattsUp(object):
                 os.kill(int(pid), 1)
             
         ON_POSIX = 'posix' in sys.builtin_module_names
-        CMD = "wattsup -t ttyUSB0 watts volts amps power-factor"
+        CMD = "wattsup -t ttyUSB1 watts volts amps power-factor"
         self._wu_process = subprocess.Popen(shlex.split(CMD), 
                                             stdout=subprocess.PIPE,
                                             stderr=subprocess.STDOUT,

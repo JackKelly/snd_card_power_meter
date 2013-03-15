@@ -66,7 +66,7 @@ class Sampler(threading.Thread):
                     data = self._audio_stream.read(config.FRAMES_PER_BUFFER)
                 except IOError, e:
                     self._safe_to_stop_audio_stream.set()
-                    log.warn("ERROR: ", str(e), file=sys.stderr)
+                    log.warn("ERROR: " + str(e))
                 else:
                     self._safe_to_stop_audio_stream.set()
                     frames.append(data)

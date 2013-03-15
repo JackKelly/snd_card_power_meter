@@ -26,6 +26,7 @@ def run_command(cmd):
 
 def config_mixer():
     print("Configuring mixer...")
+    # TODO: good levels are CAPTURE: L=47, R=27. DIGITAL=24
     run_command(["amixer", "sset", "Input Source", "Rear Mic"])
     run_command(["amixer", "set", "Digital", "60", "capture"])
     run_command(["amixer", "set", "Capture", "16", "capture"])
