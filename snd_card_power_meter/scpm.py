@@ -141,6 +141,10 @@ def calculate_calibrated_power(split_adc_data, adc_rms, calibration):
         - volts_rms (float): volts
         - amps_rms (float): amps
         - power_factor (float)
+        - i_leads_v (boolean or None):
+            True : current leads voltage (capacitive)
+            False: current lags voltage (inductive)
+            None : unknown
     """
     
     data = Bunch()
@@ -158,15 +162,14 @@ def calculate_calibrated_power(split_adc_data, adc_rms, calibration):
     
     data.power_factor = data.real_power / data.apparent_power
     
-    # leading or lagging?
+    # Is power factor leading (capacitive) or lagging (inductive)?
     try:
         phase_diff = get_phase_diff(split_adc_data) - calibration.phase_diff
     except ZeroCrossingError as e:
         print(str(e), file=sys.stderr)
+        data.i_leads_v = None # unknown
     else:
-        if phase_diff < 0: # V leads I
-            # TODO: will get insane answers for things like my LCD. What to do?
-            pass
+        data.i_leads_v = phase_diff > 0
     
     return data
 
@@ -276,7 +279,7 @@ class ZeroCrossingError(Exception):
     pass
 
 
-def get_phase_diff(split_adc_data, tolerance=config.FRAME_RATE/110):
+def get_phase_diff(split_adc_data, tolerance=config.FRAME_RATE/200):
     """Finds the phase difference between the positive-going zero crossings
     of the voltage and current waveforms.
     
@@ -291,7 +294,7 @@ def get_phase_diff(split_adc_data, tolerance=config.FRAME_RATE/110):
         The mean number of samples by which the zero crossings of the current
         and voltage waveforms differ.  
         Positive means current leads voltage ("leading" AKA capacitive)
-        Negative means voltage leads current ("lagging" AKA inductive)
+        Negative means current lags voltage ("lagging" AKA inductive)
         http://sg.answers.yahoo.com/question/index?qid=20111107044946AACm7c8
     """ 
 
@@ -315,13 +318,13 @@ def get_phase_diff(split_adc_data, tolerance=config.FRAME_RATE/110):
             phase_diff = izc[i+i_offset] - vzc[i]
         except IndexError:
             continue
-        
-        if abs(phase_diff) < tolerance: # This is a valid comparison            
-            phase_diffs.append(phase_diff)
-        elif phase_diff > tolerance:
-            i_offset -= 1
         else:
-            i_offset += 1
+            if abs(phase_diff) < tolerance: # Then this is a valid comparison            
+                phase_diffs.append(phase_diff)
+            elif phase_diff > tolerance:
+                i_offset -= 1
+            else:
+                i_offset += 1
             
     print("phase diff = {:.1f} mean samples, std = {:.3f} samples".format(
                                                        np.mean(phase_diffs),
@@ -369,11 +372,17 @@ def print_power(calcd_data, wu_data=None):
     def diff(a, b):
         return abs(a-b) / max(a,b)
     
+    if calcd_data.i_leads_v is None:
+        leading_or_lagging = "unknown"
+    else:
+        leading_or_lagging = ("I leads V (capacitive)" if calcd_data.i_leads_v
+                              else "I lags V (inductive)")
+    
     print("         VOLTS  |   AMPS |     REAL |  APPARENT |  PF ")
-    print("   SCPM: {:>6.1f} | {:>6.3f} | {:>8.1f} |  {:>8.2f} | {:>3.2f}"
+    print("   SCPM: {:>6.1f} | {:>6.3f} | {:>8.1f} |  {:>8.2f} | {:>3.2f} {}"
           .format(calcd_data.volts_rms, calcd_data.amps_rms, 
                   calcd_data.real_power, calcd_data.apparent_power, 
-                  calcd_data.power_factor))
+                  calcd_data.power_factor, leading_or_lagging))
     
     if wu_data is not None:
         print("WattsUp: {:>6.1f} | {:>6.3f} | {:>8.1f} |  {:>8.2f} | {:>3.2f}"
