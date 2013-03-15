@@ -287,7 +287,7 @@ class ZeroCrossingError(Exception):
 
 
 def indices_of_positive_peaks(data, frequency):
-    """Returns the index of the positive peak for each cycle.
+    """Returns the indices of the positive peaks for each cycle.
     
     Args:
         data (numpy array)
@@ -298,9 +298,6 @@ def indices_of_positive_peaks(data, frequency):
     n_samples_per_mains_cycle = int(round(n_samples_per_mains_cycle))
     
     indices_of_peaks = np.zeros(n_cycles)
-    
-    print("n_cycles", n_cycles)
-    print("n_samples_per_mains_cycle", n_samples_per_mains_cycle)
     
     start_i = 0
     for cycle in range(n_cycles):
@@ -326,42 +323,44 @@ def get_frequency(data):
 
 
 def get_phase_diff(split_adc_data, tolerance=config.PHASE_DIFF_TOLERANCE):
-    """Finds the phase difference between the positive-going zero crossings
+    """Finds the phase difference between the positive peaks
     of the voltage and current waveforms.
     
     Args:
         split_adc_data: Bunch with fields:
             - voltage (binary string): raw adc data
             - current (binary string): raw adc data
+
         tolerance (float): max number of samples by which 
             i and v zero crossings can differ.
     
     Returns:
-        The mean number of samples by which the zero crossings of the current
+        The mean number of samples by which the +ve peaks of the current
         and voltage waveforms differ.  
         Positive means current leads voltage ("leading" AKA capacitive)
         Negative means current lags voltage ("lagging" AKA inductive)
         http://sg.answers.yahoo.com/question/index?qid=20111107044946AACm7c8
     """ 
 
-    voltage, current = convert_adc_to_numpy_float(split_adc_data)    
-    vzc = positive_zero_crossings(voltage) # vzc = voltage zero crossings
-    izc = positive_zero_crossings(current) # izc = current zero crossings
+    voltage, current = convert_adc_to_numpy_float(split_adc_data)
+    FREQ = get_frequency(voltage)
+    v_peaks = indices_of_positive_peaks(voltage, FREQ)
+    i_peaks = indices_of_positive_peaks(current, FREQ)
     
     # sanity check length
-    if not (len(izc)-2 < len(vzc) < len(izc)+2):
-        raise ZeroCrossingError("ERROR: number of current zero crossings ({})"
+    if not (len(i_peaks)-2 < len(v_peaks) < len(i_peaks)+2):
+        raise ZeroCrossingError("ERROR: number of current peaks ({})"
                                 " too dissimilar to\n"
-                                "       number of voltage zero crossings ({})."
-                                .format(len(izc), len(vzc)))
+                                "       number of voltage peak ({})."
+                                .format(len(i_peaks), len(v_peaks)))
 
     
-    # go through each zero crossing in turn and compare
+    # go through each peak in turn and compare I with V
     i_offset = 0
     phase_diffs = []
-    for i in range(len(vzc)):
+    for i in range(len(v_peaks)):
         try:
-            phase_diff = izc[i+i_offset] - vzc[i]
+            phase_diff = i_peaks[i+i_offset] - v_peaks[i]
         except IndexError:
             continue
         else:
@@ -376,9 +375,11 @@ def get_phase_diff(split_adc_data, tolerance=config.PHASE_DIFF_TOLERANCE):
     std_phase_diff = np.std(phase_diffs)
             
     print("phase diff mean samples = {:.1f}, mean degrees = {:.2f}\n"
-          "phase diff std samples  = {:.3f},  std degrees = {:.2f}"
+          "phase diff std samples  = {:.3f},  std degrees = {:.2f}\n"
+          "phase diff number of valid comparisons = {}"
           .format(mean_phase_diff, mean_phase_diff / config.SAMPLES_PER_DEGREE,
-                  std_phase_diff, std_phase_diff / config.SAMPLES_PER_DEGREE))
+                  std_phase_diff, std_phase_diff / config.SAMPLES_PER_DEGREE,
+                  len(phase_diffs)))
     
     return mean_phase_diff
 

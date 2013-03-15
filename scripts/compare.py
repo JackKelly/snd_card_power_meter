@@ -25,12 +25,12 @@ def main():
             # Now get ADC data recorded at wu_data.time
             adc_data = scpm.find_time(sampler.adc_data_queue, wu_data.time)
             if adc_data:
+                print("")                
                 split_adc_data = scpm.split_channels(adc_data.data)
                 adc_rms = scpm.calculate_adc_rms(split_adc_data)
                 calcd_data = scpm.calculate_calibrated_power(split_adc_data, 
                                                         adc_rms, calibration)
                 
-                print("")
                 scpm.print_power(calcd_data, wu_data)
 
     except KeyboardInterrupt:
