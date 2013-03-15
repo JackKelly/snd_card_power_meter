@@ -141,6 +141,7 @@ def calculate_calibrated_power(split_adc_data, adc_rms, calibration):
         - volts_rms (float): volts
         - amps_rms (float): amps
         - power_factor (float)
+        - frequency (float): voltage frequency in Hz
         - i_leads_v (boolean or None):
             True : current leads voltage (capacitive)
             False: current lags voltage (inductive)
@@ -151,15 +152,21 @@ def calculate_calibrated_power(split_adc_data, adc_rms, calibration):
     voltage, current = convert_adc_to_numpy_float(split_adc_data)
     voltage, current = shift_phase(voltage, current, calibration)
     
+    # Frequency
+    data.frequency = get_frequency(voltage)    
+    
+    # Real power
     inst_power = voltage * current # instantaneous power
     data.real_power = inst_power.mean() * calibration.watts_per_adc_step
     if data.real_power < 0:
         data.real_power = 0
     
+    # Apparent power
     data.volts_rms = adc_rms.adc_v_rms * calibration.volts_per_adc_step
     data.amps_rms  = adc_rms.adc_i_rms * calibration.amps_per_adc_step
     data.apparent_power = data.volts_rms * data.amps_rms
     
+    # Power factor
     data.power_factor = data.real_power / data.apparent_power
     
     # Is power factor leading (capacitive) or lagging (inductive)?
@@ -277,6 +284,29 @@ def positive_zero_crossings(data):
 
 class ZeroCrossingError(Exception):
     pass
+
+
+def index_of_positive_peaks(data, mains_frequency):
+    """Returns the index of the positive peak for each cycle.
+    
+    Args:
+        data (numpy array)
+    """
+    n_cycles = len(data) / config.SAMPLES_PER_MAINS_CYCLE
+    
+
+def get_frequency(data):
+    """
+    Args:
+        data (numpy array)
+        
+    Returns:
+        float: frequency in Hz
+    """
+    pzc = positive_zero_crossings(data)
+    mean_num_samples_per_cycle = np.diff(pzc).mean()
+    freq = config.FRAME_RATE / mean_num_samples_per_cycle
+    return freq
 
 
 def get_phase_diff(split_adc_data, tolerance=config.PHASE_DIFF_TOLERANCE):
@@ -400,6 +430,8 @@ def print_power(calcd_data, wu_data=None):
                       diff(calcd_data.real_power, wu_data.real_power),
                       diff(calcd_data.apparent_power, wu_data.apparent_power),
                       diff(calcd_data.power_factor, wu_data.power_factor)))
+
+    print("SCPM voltage frequency: {:.3f}".format(calcd_data.frequency))
 
 
 def calibrate(adc_data_queue, wu):
