@@ -15,7 +15,7 @@ Usage:
 """
 
 from __future__ import print_function, division
-import subprocess, shlex, sys, time, atexit, os
+import subprocess, shlex, sys, time, atexit, os, re
 from bunch import Bunch
 
 def _parse_wu_line(rawline):
@@ -65,7 +65,15 @@ def _parse_wu_line(rawline):
         data.real_power = float(line[1])
         data.volts_rms = float(line[2])
         data.amps_rms = float(line[3]) / 100
-        data.power_factor = float(line[4]) / 10
+        
+        # Occasionally the last entry can have an error message glued
+        # onto the numeric data.
+        match = re.match(r"([0-9]*\.?[0-9]+)([a-z: ]*)", line[4], re.I)
+        items = match.groups()
+        data.power_factor = float(items[0]) / 10
+        if len(items) > 1 and items[1]:
+            print("WATTSUP ERROR: {}".format(str(items[1:])))
+    
         data.apparent_power = data.real_power / data.power_factor
     except ValueError as e:
         print("ERROR reading wattsup line: '{}' \nexception = {}"

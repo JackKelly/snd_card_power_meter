@@ -5,10 +5,11 @@ Compare calculated data with data from a Watts Up.
 """
 
 from __future__ import print_function, division
-import sys
+import sys, time
 import snd_card_power_meter.scpm as scpm
 from snd_card_power_meter.sampler import Sampler
 from snd_card_power_meter.wattsup import WattsUp
+import snd_card_power_meter.config as config
 
 def main():
     sampler = Sampler()
@@ -22,6 +23,10 @@ def main():
         
         while True:
             wu_data = wu.get() # blocking
+            if wu_data is None:
+                continue
+            
+            time.sleep(config.RECORD_SECONDS)
             # Now get ADC data recorded at wu_data.time
             adc_data = scpm.find_time(sampler.adc_data_queue, wu_data.time)
             if adc_data:

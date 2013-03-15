@@ -142,9 +142,9 @@ def calculate_calibrated_power(split_adc_data, adc_rms, calibration):
         - amps_rms (float): amps
         - power_factor (float)
         - frequency (float): voltage frequency in Hz
-        - i_leads_v (boolean or None):
-            True : current leads voltage (capacitive)
-            False: current lags voltage (inductive)
+        - phase_diff (float or None): phase difference in degrees
+            +ve : current leads voltage (capacitive)
+            -ve : current lags voltage (inductive)
             None : unknown
     """
     
@@ -171,12 +171,11 @@ def calculate_calibrated_power(split_adc_data, adc_rms, calibration):
     
     # Is power factor leading (capacitive) or lagging (inductive)?
     try:
-        phase_diff = get_phase_diff(split_adc_data) - calibration.phase_diff
+        data.phase_diff = (get_phase_diff(split_adc_data) -
+                           calibration.phase_diff) / config.SAMPLES_PER_DEGREE
     except ZeroCrossingError as e:
         print(str(e), file=sys.stderr)
-        data.i_leads_v = None # unknown
-    else:
-        data.i_leads_v = phase_diff > 0
+        data.phase_diff = None # unknown
     
     return data
 
@@ -374,9 +373,10 @@ def get_phase_diff(split_adc_data, tolerance=config.PHASE_DIFF_TOLERANCE):
     mean_phase_diff = np.mean(phase_diffs)
     std_phase_diff = np.std(phase_diffs)
             
-    print("phase diff mean samples = {:.1f}, mean degrees = {:.2f}\n"
-          "phase diff std samples  = {:.3f},  std degrees = {:.2f}\n"
-          "phase diff number of valid comparisons = {}"
+    print("Raw, uncalibrated phase difference (+ve means I leads V):" )
+    print("  phase diff mean samples = {:.1f}, mean degrees = {:.2f}\n"
+          "  phase diff std samples  = {:.3f},  std degrees = {:.2f}\n"
+          "  phase diff number of valid comparisons = {}"
           .format(mean_phase_diff, mean_phase_diff / config.SAMPLES_PER_DEGREE,
                   std_phase_diff, std_phase_diff / config.SAMPLES_PER_DEGREE,
                   len(phase_diffs)))
@@ -423,11 +423,13 @@ def print_power(calcd_data, wu_data=None):
     def diff(a, b):
         return abs(a-b) / max(a,b)
     
-    if calcd_data.i_leads_v is None:
+    if calcd_data.phase_diff is None:
         leading_or_lagging = "unknown"
     else:
-        leading_or_lagging = ("I leads V (capacitive)" if calcd_data.i_leads_v
+        leading_or_lagging = ("I leads V (capacitive)"
+                              if calcd_data.phase_diff > 0
                               else "I lags V (inductive)")
+        leading_or_lagging += " {:.3f} degrees".format(calcd_data.phase_diff)
     
     print("         VOLTS  |   AMPS |     REAL |  APPARENT |  PF ")
     print("   SCPM: {:>6.1f} | {:>6.3f} | {:>8.1f} |  {:>8.2f} | {:>3.2f} {}"
@@ -478,10 +480,14 @@ def calibrate(adc_data_queue, wu):
     
     while True:
         wu_data = wu.get() # blocking
+        if wu_data is None:
+            continue
+        
+        time.sleep(config.RECORD_SECONDS)
         
         # Now get ADC data recorded at wu_data.time
         adc_data = find_time(adc_data_queue, wu_data.time)
-        
+                
         if adc_data:
             split_adc_data = split_channels(adc_data.data)
             adc_rms = calculate_adc_rms(split_adc_data)
@@ -541,7 +547,7 @@ def calibrate(adc_data_queue, wu):
                 calibration_parser.write(calibfile)
         else:
             print("Could not find match for", wu_data.time, file=sys.stderr)
-            time.sleep(config.RECORD_SECONDS * 2)
+            
 
     
 def get_wavfile_name(t):

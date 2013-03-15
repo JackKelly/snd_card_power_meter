@@ -17,32 +17,32 @@ class TestLoadConfig(unittest.TestCase):
         # self.adc_data_queue, self.adc_thread = scpm.start_adc_data_queue_and_thread()
         pass
     
-#    def test_find_time(self):
-#        q = Queue()
-#        
-#        va = scpm.find_time(q, 1002)
-#        self.assertEqual(va, None)
-#        
-#        for i in range(1,10):
-#            q.put(scpm.VA(1000 + i, i, i*10))
-#        
-#        va = scpm.find_time(q, 1003)
-#        self.assertEqual(va, scpm.VA(1003, 3, 30))
-#           
-#        va = scpm.find_time(q, 1002)
-#        self.assertEqual(va, None)
-#        
-#        va = scpm.find_time(q, 1003)
-#        self.assertEqual(va, None)
-#        
-#        va = scpm.find_time(q, 1004)
-#        self.assertEqual(va, None)
-#
-#        va = scpm.find_time(q, 1009)
-#        self.assertEqual(va, scpm.VA(1009, 9, 90))
-#        
-#        va = scpm.find_time(q, 9999)
-#        self.assertEqual(va, None)
+    def test_find_time(self):
+        q = Queue()
+        
+        va = scpm.find_time(q, 1002)
+        self.assertEqual(va, None)
+        
+        for i in range(1,10):
+            q.put(Bunch(time=1000 + i, data=i*10))
+        
+        va = scpm.find_time(q, 1003)
+        self.assertEqual(va, Bunch(time=1003, data=30))
+           
+        va = scpm.find_time(q, 1002)
+        self.assertEqual(va, None)
+        
+        va = scpm.find_time(q, 1003)
+        self.assertEqual(va, None)
+        
+        va = scpm.find_time(q, 1004)
+        self.assertEqual(va, None)
+
+        va = scpm.find_time(q, 1009)
+        self.assertEqual(va, Bunch(time=1009, data=90))
+        
+        va = scpm.find_time(q, 9999)
+        self.assertEqual(va, None)
         
 
     def test_indicies_of_positive_peaks(self):

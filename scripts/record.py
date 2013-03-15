@@ -15,12 +15,15 @@ class Recorder(object):
 
     def start(self):
         cmd = ""
-        filter_state = None
         calibration = scpm.load_calibration_file()
         self.sampler.open()
         self.sampler.start()
         while True:
             adc_data = self.sampler.adc_data_queue.get()
+            if adc_data is None:
+                print("adc_data was None!", file=sys.stderr)
+                continue
+            
             split_adc_data = scpm.split_channels(adc_data.data)
             
             # Calculate real power, apparent power, v_rms and write to disk
