@@ -1,4 +1,8 @@
 #! /usr/bin/python
+"""
+Plot data from sound card.  Does not do any phase correction, neither
+for the plotted data nor for the printed data.
+"""
 
 from __future__ import print_function, division
 import snd_card_power_meter.scpm as scpm

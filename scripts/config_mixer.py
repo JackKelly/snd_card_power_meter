@@ -1,5 +1,5 @@
 #! /usr/bin/python
-
+from __future__ import print_function
 import subprocess, sys
 
 def run_command(cmd):
@@ -11,8 +11,9 @@ def run_command(cmd):
     try:
         proc = subprocess.Popen(cmd, stderr=subprocess.PIPE)
         proc.wait()
-    except Exception, e:
-        print("ERROR: Failed to run '{}'".format(" ".join(cmd)), file=sys.stderr)
+    except Exception as e:
+        cmd_str = " ".join(cmd)
+        print("ERROR: Failed to run {}".format(cmd_str), file=sys.stderr)
         print("ERROR:", str(e), file=sys.stderr)
     else:
         if proc.returncode == 0:

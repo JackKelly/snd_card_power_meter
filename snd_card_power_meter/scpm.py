@@ -20,20 +20,17 @@ Requirements
 from __future__ import print_function, division
 import numpy as np
 import wave
-import subprocess
 import sys
 import audioop # docs: http://docs.python.org/2/library/audioop.html
 import time
-import wattsup
 import collections
 import ConfigParser # docs: http://docs.python.org/2/library/configparser.html
-import datetime
 try:
-    from Queue import Queue, Empty
+    import Queue as queue
 except ImportError:
-    from queue import Queue, Empty # python 3.x
+    import queue # python 3.x
 
-import sampler, config
+import config
 from bunch import Bunch
 
 # Named tuples
@@ -182,6 +179,8 @@ def calculate_calibrated_power(split_adc_data, adc_rms, calibration):
 
 def plot(voltage, current, calibration=None):
     """
+    Plots voltage and current waveforms.  Does not do phase correction.
+    
     Args:
         voltage (numpy array containing raw ADC values)
         
@@ -260,7 +259,7 @@ def find_time(adc_data_queue, target_time):
         adc_data = None                    
         try:
             adc_data = adc_data_queue.get_nowait()
-        except Empty:
+        except queue.Empty:
             return None
         else:            
             t = int(round(adc_data.time))

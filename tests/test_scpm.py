@@ -1,6 +1,5 @@
 from __future__ import print_function
 import numpy as np
-import matplotlib.pyplot as plt
 import snd_card_power_meter.scpm as scpm
 import snd_card_power_meter.config as config
 from snd_card_power_meter.bunch import Bunch
@@ -60,6 +59,7 @@ class TestLoadConfig(unittest.TestCase):
         print(calcd_indices)
         print(correct_indices)
         
+#        import matplotlib.pyplot as plt
 #        plt.plot(y)
 #        plt.plot(calcd_indices, np.ones(len(calcd_indices)), 'r*')
 #        plt.show()

@@ -10,7 +10,7 @@ Data written to config.DATA_FILENAME. Multiple columns separated by a space:
 """
 
 from __future__ import print_function, division
-import datetime, subprocess, sys, os
+import datetime, subprocess, sys
 import snd_card_power_meter.scpm as scpm
 from snd_card_power_meter.sampler import Sampler
 import snd_card_power_meter.config as config

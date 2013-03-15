@@ -1,7 +1,7 @@
 """Code for sampling from the machine's sound card."""
 
 from __future__ import print_function, division
-import subprocess, time, sys
+import time, sys 
 import threading
 import pyaudio # docs: http://people.csail.mit.edu/hubert/pyaudio/
 from bunch import Bunch
