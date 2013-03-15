@@ -51,8 +51,7 @@ class Recorder(object):
     
             # Check if it's time to create a new FLAC file
             t = datetime.datetime.fromtimestamp(adc_data.time)
-            if self.wavfile is None or t.minute == (prev.minute+1)%60:
-                # TODO: change to hourly recordings after testing!
+            if self.wavfile is None or t.hour == (prev.hour+1)%24:
                 if self.wavfile is not None:
                     self.wavfile.close()
                     
@@ -73,8 +72,8 @@ class Recorder(object):
                     
                     # Run new sox process to compress wav file                
                     # sox is a high quality audio conversion program
-                    # the -v -L rate option forces very high quality
-                    # with linear phase.
+                    # the "rate -v -L" option forces very high quality
+                    # rate conversion with linear phase.
                     cmd = ("sox --no-dither {filename}.wav --bits 24"
                            " --compression 8 {filename}.flac"
                            " rate -v -L {downsampled_rate}"
