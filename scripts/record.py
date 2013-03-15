@@ -25,11 +25,14 @@ class Recorder(object):
         self.sampler = Sampler()
 
     def start(self):
-        cmd = ""
         calibration = scpm.load_calibration_file()
         self.sampler.open()
         self.sampler.start()
         log.info("Recording power data. Press CTRL+C to stop.")
+        
+        cmd = ""
+        prev = None
+        wavfile_name = None
         while True:
             adc_data = self.sampler.adc_data_queue.get()
             if adc_data is None:
