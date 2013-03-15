@@ -16,6 +16,12 @@ def main():
     else:
         sampler.terminate()
         split_adc_data = scpm.split_channels(adc_data.data)
+        adc_rms = scpm.calculate_adc_rms(split_adc_data)
+        calcd_data = scpm.calculate_calibrated_power(split_adc_data, 
+                                                adc_rms, calibration)
+        
+        print("")
+        scpm.print_power(calcd_data)
         voltage, current = scpm.convert_adc_to_numpy_float(split_adc_data)
         scpm.plot(voltage, current, calibration)
 

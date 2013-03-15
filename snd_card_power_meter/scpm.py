@@ -279,7 +279,7 @@ class ZeroCrossingError(Exception):
     pass
 
 
-def get_phase_diff(split_adc_data, tolerance=config.FRAME_RATE/200):
+def get_phase_diff(split_adc_data, tolerance=config.PHASE_DIFF_TOLERANCE):
     """Finds the phase difference between the positive-going zero crossings
     of the voltage and current waveforms.
     
@@ -325,12 +325,16 @@ def get_phase_diff(split_adc_data, tolerance=config.FRAME_RATE/200):
                 i_offset -= 1
             else:
                 i_offset += 1
+
+    mean_phase_diff = np.mean(phase_diffs)
+    std_phase_diff = np.std(phase_diffs)
             
-    print("phase diff = {:.1f} mean samples, std = {:.3f} samples".format(
-                                                       np.mean(phase_diffs),
-                                                       np.std(phase_diffs)))
+    print("phase diff mean samples = {:.1f}, mean degrees = {:.2f}\n"
+          "phase diff std samples  = {:.3f},  std degrees = {:.2f}"
+          .format(mean_phase_diff, mean_phase_diff / config.SAMPLES_PER_DEGREE,
+                  std_phase_diff, std_phase_diff / config.SAMPLES_PER_DEGREE))
     
-    return np.mean(phase_diffs)
+    return mean_phase_diff
 
 
 def load_calibration_file(calibration_parser=None):
@@ -390,7 +394,7 @@ def print_power(calcd_data, wu_data=None):
                       wu_data.real_power, wu_data.apparent_power, 
                       wu_data.power_factor))
         
-        print("   Diff: {:>6.3%} | {:>6.3%} |   {:>6.3%} |    {:>6.3%} | {:>6.3%}"
+        print("   Diff:{:>7.3%} |{:>7.3%} |  {:>7.3%} |   {:>7.3%} |{:>7.3%}"
               .format(diff(calcd_data.volts_rms, wu_data.volts_rms),
                       diff(calcd_data.amps_rms, wu_data.amps_rms),
                       diff(calcd_data.real_power, wu_data.real_power),
