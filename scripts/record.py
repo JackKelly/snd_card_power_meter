@@ -1,7 +1,16 @@
 #! /usr/bin/python
 
+"""
+Data written to config.DATA_FILENAME. Multiple columns separated by a space:
+ 1. UNIX timestamp
+ 2. real power (watts)
+ 3. apparent_power (VA)
+ 4. volts RMS
+ 5. phase_diff (degrees) +ve means current leads voltage (capacitive)
+"""
+
 from __future__ import print_function, division
-import datetime, subprocess, sys, os, atexit
+import datetime, subprocess, sys, os
 import snd_card_power_meter.scpm as scpm
 from snd_card_power_meter.sampler import Sampler
 import snd_card_power_meter.config as config
@@ -32,9 +41,10 @@ class Recorder(object):
                                                     calibration)
 
             with open(config.DATA_FILENAME, 'a') as data_file:
-                data_file.write('{:.1f} {:.2f} {:.2f} {:.2f}\n'
+                data_file.write('{:.1f} {:.2f} {:.2f} {:.2f} {:.2f}\n'
                                 .format(adc_data.time, power.real_power,
-                                        power.apparent_power, power.v_rms))
+                                        power.apparent_power, power.volts_rms,
+                                        power.phase_diff))
     
             # Check if it's time to create a new FLAC file
             t = datetime.datetime.fromtimestamp(adc_data.time)
@@ -98,9 +108,11 @@ def main():
     try:
         recorder.start()
     except KeyboardInterrupt:
-        pass
-    
-    recorder.terminate()
+        recorder.terminate()
+    except:
+        recorder.terminate()
+        print("Unexpected exception!")
+        raise
 
 
 if __name__ == '__main__':
