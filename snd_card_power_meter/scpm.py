@@ -286,14 +286,30 @@ class ZeroCrossingError(Exception):
     pass
 
 
-def index_of_positive_peaks(data, mains_frequency):
+def indices_of_positive_peaks(data, frequency):
     """Returns the index of the positive peak for each cycle.
     
     Args:
         data (numpy array)
+        frequency (float): sample frequency in Hz
     """
-    n_cycles = len(data) / config.SAMPLES_PER_MAINS_CYCLE
+    n_samples_per_mains_cycle = config.FRAME_RATE / frequency 
+    n_cycles = int(len(data) / n_samples_per_mains_cycle) # get floor
+    n_samples_per_mains_cycle = int(round(n_samples_per_mains_cycle))
     
+    indices_of_peaks = np.zeros(n_cycles)
+    
+    print("n_cycles", n_cycles)
+    print("n_samples_per_mains_cycle", n_samples_per_mains_cycle)
+    
+    start_i = 0
+    for cycle in range(n_cycles):
+        end_i = (cycle+1)*n_samples_per_mains_cycle
+        indices_of_peaks[cycle] = start_i + data[start_i:end_i].argmax()
+        start_i = end_i
+        
+    return indices_of_peaks
+
 
 def get_frequency(data):
     """
