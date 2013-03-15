@@ -21,8 +21,11 @@ import sys
 import snd_card_power_meter.scpm as scpm
 from snd_card_power_meter.sampler import Sampler
 from snd_card_power_meter.wattsup import WattsUp
+import logging
+log = logging.getLogger("scpm")
 
 def main():
+    scpm.init_logger()
     sampler = Sampler()
     wu = WattsUp()
     
@@ -34,7 +37,7 @@ def main():
     except KeyboardInterrupt:
         pass
     except Exception:
-        print("Exception!  Terminating.", file=sys.stderr)
+        log.exception("")
         wu.terminate()
         sampler.terminate()
         raise

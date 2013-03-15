@@ -10,8 +10,11 @@ import snd_card_power_meter.scpm as scpm
 from snd_card_power_meter.sampler import Sampler
 from snd_card_power_meter.wattsup import WattsUp
 import snd_card_power_meter.config as config
+import logging
+log = logging.getLogger("scpm")
 
 def main():
+    scpm.init_logger()
     sampler = Sampler()
     wu = WattsUp()
     
@@ -20,7 +23,7 @@ def main():
         sampler.start()
         wu.open()        
         calibration = scpm.load_calibration_file()
-        
+        log.info("Comparing SCPM data with WattsUp data... press CTRL+C to stop.")
         while True:
             wu_data = wu.get() # blocking
             if wu_data is None:
@@ -41,7 +44,7 @@ def main():
     except KeyboardInterrupt:
         pass
     except Exception:
-        print("Exception!  Terminating.", file=sys.stderr)
+        log.exception("")
         wu.terminate()
         sampler.terminate()
         raise

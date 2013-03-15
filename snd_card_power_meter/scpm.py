@@ -24,6 +24,8 @@ import sys
 import audioop # docs: http://docs.python.org/2/library/audioop.html
 import time
 import collections
+import logging.handlers
+log = logging.getLogger("scpm")
 import ConfigParser # docs: http://docs.python.org/2/library/configparser.html
 try:
     import Queue as queue
@@ -156,6 +158,7 @@ def calculate_calibrated_power(split_adc_data, adc_rms, calibration):
     inst_power = voltage * current # instantaneous power
     data.real_power = inst_power.mean() * calibration.watts_per_adc_step
     if data.real_power < 0:
+        log.warn("real_power is NEGATIVE! {:.3f}V".format(data.real_power))
         data.real_power = 0
     
     # Apparent power
@@ -171,7 +174,7 @@ def calculate_calibrated_power(split_adc_data, adc_rms, calibration):
         data.phase_diff = (get_phase_diff(split_adc_data) -
                            calibration.phase_diff) / config.SAMPLES_PER_DEGREE
     except ZeroCrossingError as e:
-        print(str(e), file=sys.stderr)
+        log.debug(str(e))
         data.phase_diff = None # unknown
     
     return data
@@ -320,7 +323,8 @@ def get_frequency(data):
     return freq
 
 
-def get_phase_diff(split_adc_data, tolerance=config.PHASE_DIFF_TOLERANCE):
+def get_phase_diff(split_adc_data, tolerance=config.PHASE_DIFF_TOLERANCE,
+                   display=False):
     """Finds the phase difference between the positive peaks
     of the voltage and current waveforms.
     
@@ -331,6 +335,8 @@ def get_phase_diff(split_adc_data, tolerance=config.PHASE_DIFF_TOLERANCE):
 
         tolerance (float): max number of samples by which 
             i and v zero crossings can differ.
+            
+        display (boolean): Optional. If True then print info about phase diff.
     
     Returns:
         The mean number of samples by which the +ve peaks of the current
@@ -370,15 +376,18 @@ def get_phase_diff(split_adc_data, tolerance=config.PHASE_DIFF_TOLERANCE):
                 i_offset += 1
 
     mean_phase_diff = np.mean(phase_diffs)
-    std_phase_diff = np.std(phase_diffs)
-            
-    print("Raw, uncalibrated phase difference (+ve means I leads V):" )
-    print("  phase diff mean samples = {:.1f}, mean degrees = {:.2f}\n"
-          "  phase diff std samples  = {:.3f},  std degrees = {:.2f}\n"
-          "  phase diff number of valid comparisons = {}"
-          .format(mean_phase_diff, mean_phase_diff / config.SAMPLES_PER_DEGREE,
-                  std_phase_diff, std_phase_diff / config.SAMPLES_PER_DEGREE,
-                  len(phase_diffs)))
+    
+    if display:
+        std_phase_diff = np.std(phase_diffs)
+        print("Raw, uncalibrated phase difference (+ve means I leads V):" )
+        print("  phase diff mean samples = {:.1f}, mean degrees = {:.2f}\n"
+              "  phase diff std samples  = {:.3f},  std degrees = {:.2f}\n"
+              "  phase diff number of valid comparisons = {}"
+              .format(mean_phase_diff,
+                      mean_phase_diff / config.SAMPLES_PER_DEGREE,
+                      std_phase_diff,
+                      std_phase_diff / config.SAMPLES_PER_DEGREE,
+                      len(phase_diffs)))
     
     return mean_phase_diff
 
@@ -392,6 +401,8 @@ def load_calibration_file(calibration_parser=None):
         - phase_diff (float)
         - watts_per_adc_step (float)
     """
+    log.info("Opening calibration file...")
+    
     if calibration_parser is None:
         calibration_parser = ConfigParser.RawConfigParser()
         calibration_parser.read(config.CALIBRATION_FILENAME)
@@ -406,15 +417,16 @@ def load_calibration_file(calibration_parser=None):
         calib.phase_diff = calibration_parser.getfloat(calib_section,
                                                   "phase_difference")
     except (ConfigParser.NoOptionError, ConfigParser.NoSectionError) as e:
-        print("Error loading option from config file", str(e), file=sys.stderr)
+        log.warn("Error loading option from config file: {}".format(str(e)))
         return None
     else:
         calib.watts_per_adc_step = (calib.volts_per_adc_step * 
                                     calib.amps_per_adc_step)   
-        print("VOLTS_PER_ADC_STEP =", calib.volts_per_adc_step)
-        print("AMPS_PER_ADC_STEP  =", calib.amps_per_adc_step)
-        print("WATTS_PER_ADC_STEP =", calib.watts_per_adc_step)
-
+        log.info("VOLTS_PER_ADC_STEP = {}".format(calib.volts_per_adc_step))
+        log.info("AMPS_PER_ADC_STEP  = {}".format(calib.amps_per_adc_step))
+        log.info("WATTS_PER_ADC_STEP = {}".format(calib.watts_per_adc_step))
+        
+    log.info("Finished loading calibration file.")
     return calib
 
 
@@ -471,8 +483,8 @@ def calibrate(adc_data_queue, wu):
     try:
         calibration_parser.add_section("Calibration")
     except ConfigParser.DuplicateSectionError:
-        print("Overwriting existing calibration file",
-              config.CALIBRATION_FILENAME)
+        log.warn("Overwriting existing calibration file: " + 
+                 config.CALIBRATION_FILENAME)
         calib = load_calibration_file(calibration_parser)
     else:
         calib = Bunch()
@@ -560,3 +572,29 @@ def get_wavfile(wavefile_name):
     wavfile.setframerate(config.FRAME_RATE)
     return wavfile    
 
+
+def init_logger():
+    log.setLevel(logging.DEBUG)
+    
+    # date formatting
+    datefmt = "%y-%m-%d %H:%M:%S"
+
+    # create console handler (ch) for stdout
+    ch = logging.StreamHandler()
+    ch.setLevel(logging.INFO)
+    ch_formatter = logging.Formatter('%(asctime)s %(levelname)s '
+                        '%(message)s', datefmt=datefmt)
+    ch.setFormatter(ch_formatter)
+    log.addHandler(ch)
+    
+    # create file handler (fh) for config.LOG_FILENAME
+    fh = logging.handlers.RotatingFileHandler(config.LOG_FILENAME,
+                                              maxBytes=1E7, backupCount=5)
+    fh.setLevel(logging.DEBUG)
+    fh_formatter = logging.Formatter("%(asctime)s %(levelname)s" 
+                                     " %(funcName)s %(message)s",
+                                     datefmt=datefmt)
+    fh.setFormatter(fh_formatter)    
+    log.addHandler(fh)
+    
+    log.info("Starting up...")

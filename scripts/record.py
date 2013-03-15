@@ -10,7 +10,9 @@ Data written to config.DATA_FILENAME. Multiple columns separated by a space:
 """
 
 from __future__ import print_function, division
-import datetime, subprocess, sys
+import datetime, subprocess
+import logging
+log = logging.getLogger("scpm")
 import snd_card_power_meter.scpm as scpm
 from snd_card_power_meter.sampler import Sampler
 import snd_card_power_meter.config as config
@@ -27,10 +29,11 @@ class Recorder(object):
         calibration = scpm.load_calibration_file()
         self.sampler.open()
         self.sampler.start()
+        log.info("Recording power data. Press CTRL+C to stop.")
         while True:
             adc_data = self.sampler.adc_data_queue.get()
             if adc_data is None:
-                print("adc_data was None!", file=sys.stderr)
+                log.warn("adc_data was None!")
                 continue
             
             split_adc_data = scpm.split_channels(adc_data.data)
@@ -57,13 +60,14 @@ class Recorder(object):
                     if self.sox_process is not None:
                         self.sox_process.poll()
                         if self.sox_process.returncode is None:
-                            print("WARNING: command has not terminated yet:",
-                                   cmd, file=sys.stderr)
+                            log.warn("WARNING: command has not terminated yet: "
+                                     + cmd)
                         elif self.sox_process.returncode == 0:
-                            print("Previous conversion successfully completed.")
+                            log.debug("Previous conversion successfully completed: "
+                                      + cmd)
                         else:
-                            print("WARNING: Previous conversion FAILED.",
-                                   cmd, file=sys.stderr)
+                            log.warn("WARNING: Previous conversion FAILED: "
+                                     + cmd)
                             
                     base_filename = wavfile_name.rpartition('.')[0]
                     
@@ -78,7 +82,7 @@ class Recorder(object):
                            .format(filename=base_filename,
                                    downsampled_rate=config.DOWNSAMPLED_RATE))
     
-                    print("Running", cmd)                                
+                    log.info("Running: " + cmd)                                
                     self.sox_process = subprocess.Popen(cmd, shell=True)
                     
                 wavfile_name = scpm.get_wavfile_name(adc_data.time)
@@ -88,7 +92,7 @@ class Recorder(object):
             self.wavfile.writeframes(adc_data.data) # Dump high res. ADC data to disk
 
     def terminate(self):
-        print("\nRecorder shutdown.")
+        log.info("Recorder shutdown.\n")
         
         if self.wavfile is not None:
             self.wavfile.close()
@@ -100,9 +104,12 @@ class Recorder(object):
             self.sox_process.poll()
             if self.sox_process.returncode is None: # sox_process has not terminated yet
                 self.sox_process.terminate()
+                
+        logging.shutdown()
 
 
 def main():
+    scpm.init_logger()
     recorder = Recorder()
 
     try:

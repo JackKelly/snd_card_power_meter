@@ -17,6 +17,8 @@ Usage:
 from __future__ import print_function, division
 import subprocess, shlex, sys, time, atexit, os, re
 from bunch import Bunch
+import logging
+log = logging.getLogger("scpm")
 
 def _parse_wu_line(rawline):
     """Convert a line of text from the Watts Up.
@@ -42,8 +44,8 @@ def _parse_wu_line(rawline):
     except ValueError as e:
         # If we failed to convert the time then this is very unlikely
         # to be a valid line of data.
-        print("ERROR reading wattsup line: '{}' \nexception = {}"
-              .format(rawline, str(e)), file=sys.stderr)
+        log.warn("ERROR reading wattsup line: '{}' \nexception = {}"
+                 .format(rawline, str(e)))
         return None
 
     data = Bunch() # what we return
@@ -72,12 +74,12 @@ def _parse_wu_line(rawline):
         items = match.groups()
         data.power_factor = float(items[0]) / 10
         if len(items) > 1 and items[1]:
-            print("WATTSUP ERROR: {}".format(str(items[1:])))
+            log.warn("WATTSUP ERROR: {}".format(str(items[1:])))
     
         data.apparent_power = data.real_power / data.power_factor
     except ValueError as e:
-        print("ERROR reading wattsup line: '{}' \nexception = {}"
-              .format(rawline, str(e)), file=sys.stderr)
+        log.warn("ERROR reading wattsup line: '{}' \nexception = {}"
+                 .format(rawline, str(e)))
         return None        
 
     return data
@@ -107,7 +109,8 @@ class WattsUp(object):
             except subprocess.CalledProcessError:
                 break
             else:
-                print("WARNING: wattsup is already running.  Attempting to kill it...")
+                log.warn("WARNING: wattsup is already running."
+                         "  Attempting to kill it...")
                 os.kill(int(pid), 1)
             
         ON_POSIX = 'posix' in sys.builtin_module_names
@@ -120,7 +123,7 @@ class WattsUp(object):
         time.sleep(1) # wait to make sure wattsup stays alive
         self._check_wattsup_is_running()
         atexit.register(self.terminate)
-        print("Successfully initialised wattsup")
+        log.info("Successfully initialised wattsup")
 
     def _check_wattsup_is_running(self):
         if self._wu_process is None:
@@ -130,8 +133,8 @@ class WattsUp(object):
             if self._wu_process.returncode is not None:
                 # process has terminated so stdout will have an EOF so
                 # stdout.read() will return.
-                print("wattsup error:", self._wu_process.stdout.read(),
-                      file=sys.stderr)
+                log.warn("wattsup error: {}"
+                         .format(self._wu_process.stdout.read()))
                 raise WattsUpError("ERROR: wattsup has died")
         
     def get(self):
@@ -144,7 +147,7 @@ class WattsUp(object):
         if self._wu_process is not None:
             self._wu_process.poll()
             if self._wu_process.returncode is None: # process is still running
-                print("Terminating wattsup")
+                log.info("Terminating wattsup")
                 self._wu_process.terminate()        
 
     def __del__(self):

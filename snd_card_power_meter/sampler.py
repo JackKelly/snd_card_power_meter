@@ -1,8 +1,9 @@
 """Code for sampling from the machine's sound card."""
 
 from __future__ import print_function, division
-import time, sys 
-import threading
+import time, sys, threading
+import logging
+log = logging.getLogger("scpm")
 import pyaudio # docs: http://people.csail.mit.edu/hubert/pyaudio/
 from bunch import Bunch
 import config
@@ -23,6 +24,7 @@ class Sampler(threading.Thread):
         self.adc_data_queue = None        
         
     def open(self):
+        log.info("Opening Sampler...")
         self._abort = threading.Event()
         self._safe_to_stop_audio_stream = threading.Event()
         self._safe_to_stop_audio_stream.set()
@@ -34,9 +36,11 @@ class Sampler(threading.Thread):
                                  rate=config.FRAME_RATE,
                                  input=True,
                                  frames_per_buffer=config.FRAMES_PER_BUFFER)
+        log.info("Successfully opened Sampler.")
 
     def run(self):
-        """This will be run as a separate thread.""" 
+        """This will be run as a separate thread."""
+        log.info("Running sampler...") 
         while not self._abort.is_set():
             self.adc_data_queue.put(self.get_adc_data())
         
@@ -62,7 +66,7 @@ class Sampler(threading.Thread):
                     data = self._audio_stream.read(config.FRAMES_PER_BUFFER)
                 except IOError, e:
                     self._safe_to_stop_audio_stream.set()
-                    print("ERROR: ", str(e), file=sys.stderr)
+                    log.warn("ERROR: ", str(e), file=sys.stderr)
                 else:
                     self._safe_to_stop_audio_stream.set()
                     frames.append(data)
@@ -72,7 +76,7 @@ class Sampler(threading.Thread):
         return Bunch(time=t, data=stereo)
     
     def terminate(self):
-        print("Terminating Sampler")
+        log.info("Terminating Sampler")
         self._abort.set()
         
         self._safe_to_stop_audio_stream.wait()
