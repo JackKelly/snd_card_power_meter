@@ -73,8 +73,6 @@ class Recorder(object):
         
         # Check if the previous conversion process has completed
         self._check_sox_process_has_completed()
-                
-        base_filename = self.wavfile_name.rpartition('.')[0]
         
         # Run new sox process to compress wav file                
         # sox is a high quality audio conversion program
@@ -84,7 +82,7 @@ class Recorder(object):
                " --compression 8 {filename}.flac"
                " rate -v -L {downsampled_rate}"
                " && rm {filename}.wav"
-               .format(filename=base_filename,
+               .format(filename=self.wavfile_name,
                        downsampled_rate=config.DOWNSAMPLED_RATE))
 
         log.info("Running: " + cmd)                                

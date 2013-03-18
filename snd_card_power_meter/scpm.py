@@ -22,7 +22,7 @@ import numpy as np
 import wave
 import sys
 import audioop # docs: http://docs.python.org/2/library/audioop.html
-import time
+import time, datetime
 import logging.handlers
 log = logging.getLogger("scpm")
 import ConfigParser # docs: http://docs.python.org/2/library/configparser.html
@@ -582,11 +582,26 @@ def calibrate(adc_data_queue, wu):
 
     
 def get_wavfile_name(t):
-    return config.FLAC_FILENAME_PREFIX + "-{:f}".format(t) + ".wav" 
+    """
+    Args:
+        t (float): UNIX timestamp on which to base the filename
+    Returns:
+        string: filename for a wavfile (without suffix).
+    """
+    dt = datetime.datetime.fromtimestamp(t)
+    filename = (config.FLAC_FILENAME_PREFIX + 
+                dt.strftime('%Y_%m_%d_%H_%M_%S_') + str(dt.microsecond))
+    return filename
 
 
 def get_wavfile(wavefile_name):
-    wavfile = wave.open(wavefile_name, 'wb')
+    """
+    Args:
+        wavefile_name (str): filename without suffix.
+    Returns:
+        Wave_write object
+    """
+    wavfile = wave.open(wavefile_name + '.wav', 'wb')
     wavfile.setnchannels(config.N_CHANNELS)
     wavfile.setsampwidth(config.SAMPLE_WIDTH)
     wavfile.setframerate(config.FRAME_RATE)

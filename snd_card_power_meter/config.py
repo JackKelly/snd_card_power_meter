@@ -6,7 +6,7 @@ import pyaudio, os
 CALIBRATION_FILENAME = os.path.dirname(__file__) + "/../calibration.cfg"
 DOWNSAMPLED_RATE = 16000 # Hz (MIT REDD uses 15kHz but 16kHz is a standard
 #                              rate and so increases compatibility)
-FLAC_FILENAME_PREFIX = "vi" # short for "voltage and current"
+FLAC_FILENAME_PREFIX = "vi-" # short for "voltage and current"
 DATA_FILENAME = os.path.dirname(__file__) + "/../mains.dat"
 LOG_FILENAME = os.path.dirname(__file__) + "/../scpm.log"
 
