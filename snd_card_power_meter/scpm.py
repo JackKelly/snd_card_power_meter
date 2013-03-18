@@ -23,7 +23,6 @@ import wave
 import sys
 import audioop # docs: http://docs.python.org/2/library/audioop.html
 import time
-import collections
 import logging.handlers
 log = logging.getLogger("scpm")
 import ConfigParser # docs: http://docs.python.org/2/library/configparser.html
@@ -34,10 +33,6 @@ except ImportError:
 
 import config
 from bunch import Bunch
-
-# Named tuples
-TVI = collections.namedtuple('TVI', ['time', 'voltage', 'current'])
-Power = collections.namedtuple('Power', ['time', 'real', 'apparent', 'v_rms'])
 
         
 def split_channels(stereo):
@@ -160,7 +155,8 @@ def calculate_calibrated_power(split_adc_data, adc_rms, calibration):
     inst_power = voltage * current # instantaneous power
     data.real_power = inst_power.mean() * calibration.watts_per_adc_step
     if data.real_power < 0:
-        log.warn("real_power is NEGATIVE! {:.3f}W".format(data.real_power))
+        log.warn("real_power is NEGATIVE! Is the CT clamp on backwards?"
+                 " {:.3f}W".format(data.real_power))
         data.real_power = 0
     
     # Apparent power
@@ -176,7 +172,7 @@ def calculate_calibrated_power(split_adc_data, adc_rms, calibration):
         data.phase_diff = (get_phase_diff(split_adc_data) -
                            calibration.phase_diff) / config.SAMPLES_PER_DEGREE
     except ZeroCrossingError as e:
-        log.debug(str(e))
+        log.warn(str(e))
         data.phase_diff = None # unknown
     
     return data
@@ -290,11 +286,14 @@ class ZeroCrossingError(Exception):
 
 
 def indices_of_positive_peaks(data, frequency):
-    """Returns the indices of the positive peaks for each cycle.
-    
+    """
     Args:
         data (numpy array)
         frequency (float): sample frequency in Hz
+        
+    Returns:
+        Returns the indices of the positive peaks for each cycle.
+        None if peaks cannot be found.    
     """
     n_samples_per_mains_cycle = config.FRAME_RATE / frequency 
     n_cycles = int(len(data) / n_samples_per_mains_cycle) # get floor
@@ -305,8 +304,13 @@ def indices_of_positive_peaks(data, frequency):
     start_i = 0
     for cycle in range(n_cycles):
         end_i = (cycle+1)*n_samples_per_mains_cycle
-        indices_of_peaks[cycle] = start_i + data[start_i:end_i].argmax()
-        start_i = end_i
+        try:
+            indices_of_peaks[cycle] = start_i + data[start_i:end_i].argmax()
+        except ValueError as e:
+            log.debug("Error getting argmax!: " + str(e))
+            return None
+        else:
+            start_i = end_i
         
     return indices_of_peaks
 
@@ -352,6 +356,10 @@ def get_phase_diff(split_adc_data, tolerance=config.PHASE_DIFF_TOLERANCE,
     FREQ = get_frequency(voltage)
     v_peaks = indices_of_positive_peaks(voltage, FREQ)
     i_peaks = indices_of_positive_peaks(current, FREQ)
+    
+    if v_peaks is None or i_peaks is None:
+        raise ZeroCrossingError("ERROR: Cannot find peaks!"
+                                " Are both sensors plugged in?")
     
     # sanity check length
     if not (len(i_peaks)-2 < len(v_peaks) < len(i_peaks)+2):
