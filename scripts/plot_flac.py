@@ -1,12 +1,22 @@
 #! /usr/bin/python
 """
-Plot data from sound card.  Does not do any phase correction, neither
-for the plotted data nor for the printed data.
+Plot data from a FLAC file.
+
+Dependencies
+------------
+
+flac
+
+If you get problems opening the uncompressed wav file then 
+please make sure you development packages of libofa and avformat/avcodec
+installed (libofa0-dev, libavformat-dev and libavcodec-dev on Debian).
+See http://forums.musicbrainz.org/viewtopic.php?id=2237
+
 """
 
 from __future__ import print_function, division
 import snd_card_power_meter.scpm as scpm
-import argparse, logging, subprocess, shlex, wave
+import argparse, logging, subprocess, shlex, wave, os
 log = logging.getLogger("scpm")
 
 def uncompress_and_load(flac_filename):
@@ -17,12 +27,23 @@ def uncompress_and_load(flac_filename):
     Returns:
         Wave_read object
     """
-    cmd = 'sox {filename}.flac {filename}.wav'.format(filename=flac_filename)
-    print("Running", cmd)
-    sox_process = subprocess.Popen(shlex.split(cmd))
-    sox_process.wait()
-    wavfile = wave.open(flac_filename + '.wav', 'rb')
+
+    if not os.path.exists(flac_filename + '.wav'):
+        print("Uncompressing", flac_filename)
+        cmd = 'flac -fd {filename}.flac -o {filename}.wav'.format(filename=flac_filename)
+        print("Running", cmd)
+        sox_process = subprocess.Popen(shlex.split(cmd))
+        sox_process.wait()
+        print("done running decompression process.")
+    wavfile = wave.open(flac_filename + '.wav', 'r')
     print("Opened {}.wav".format(flac_filename))
+    d = {}
+    d['nchannels'], d['sampwidth'], d['framerate'], \
+    d['nframes'], d['comptype'], d['compname'] = wavfile.getparams()
+    print("nchannels={nchannels}, sampwidth={sampwidth},"
+          " framerate={framerate}Hz, nframes={nframes},\n"
+          "comptype={comptype}, compname={compname}"
+          .format(**d))
     return wavfile
 
 
