@@ -56,7 +56,7 @@ class Recorder(object):
     
             # Check if it's time to create a new FLAC file
             t = datetime.datetime.fromtimestamp(adc_data.time)
-            if self.wavfile is None or t.minute == (prev_conv_time.minute+1)%60:
+            if self.wavfile is None or t.hour == (prev_conv_time.hour+1)%24:
                 self._close_and_compress_wavfile()
                 self.wavfile_name = scpm.get_wavfile_name(adc_data.time)
                 self.wavfile = scpm.get_wavfile(self.wavfile_name)
