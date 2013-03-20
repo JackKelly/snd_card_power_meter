@@ -35,7 +35,7 @@ import config
 from bunch import Bunch
 
         
-def split_channels(stereo):
+def split_channels(stereo, sample_width=config.SAMPLE_WIDTH):
     """
     Args:
         stereo (binary string): stereo raw ADC data
@@ -46,8 +46,8 @@ def split_channels(stereo):
         - current (binary string): raw ADC data
     """
     data = Bunch()
-    data.voltage = audioop.tomono(stereo, config.SAMPLE_WIDTH, 1, 0)
-    data.current = audioop.tomono(stereo, config.SAMPLE_WIDTH, 0, 1)
+    data.voltage = audioop.tomono(stereo, sample_width, 1, 0)
+    data.current = audioop.tomono(stereo, sample_width, 0, 1)
     return data
 
 
@@ -96,7 +96,7 @@ def shift_phase(voltage, current, calibration=None):
     return voltage, current
 
 
-def calculate_adc_rms(split_adc_data):
+def calculate_adc_rms(split_adc_data, sample_width=config.SAMPLE_WIDTH):
     """
     Args:
         split_adc_data: Bunch with fields:
@@ -109,8 +109,8 @@ def calculate_adc_rms(split_adc_data):
         - adc_i_rms (float)    
     """
     data = Bunch()
-    data.adc_v_rms = audioop.rms(split_adc_data.voltage, config.SAMPLE_WIDTH)
-    data.adc_i_rms = audioop.rms(split_adc_data.current, config.SAMPLE_WIDTH)
+    data.adc_v_rms = audioop.rms(split_adc_data.voltage, sample_width)
+    data.adc_i_rms = audioop.rms(split_adc_data.current, sample_width)
     return data
 
 

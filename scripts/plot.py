@@ -17,7 +17,7 @@ def main():
     try:
         sampler.open()
         sampler.start()
-        calibration = scpm.load_calibration_file()                
+        calibration = scpm.load_calibration_file()
         adc_data = sampler.adc_data_queue.get()
     except KeyboardInterrupt:
         sampler.terminate()
