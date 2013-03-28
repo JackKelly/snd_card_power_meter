@@ -4,9 +4,8 @@
 Data written to config.DATA_FILENAME. Multiple columns separated by a space:
  1. UNIX timestamp
  2. real power (watts)
- 3. apparent_power (VA)
+ 3. apparent power (VA)
  4. volts RMS
- 5. phase_diff (degrees) +ve means current leads voltage (capacitive)
 """
 
 from __future__ import print_function, division
@@ -46,13 +45,9 @@ class Recorder(object):
 
             # Dump power data to disk
             with open(config.DATA_FILENAME, 'a') as data_file:
-                data_file.write('{:.1f} {:.2f} {:.2f} {:.2f}'
+                data_file.write('{:.1f} {:.2f} {:.2f} {:.2f}\n'
                                 .format(adc_data.time, power.real_power,
                                         power.apparent_power, power.volts_rms))
-                if power.phase_diff is None:
-                    data_file.write('\n')
-                else:
-                    data_file.write(' {:.2f}\n'.format(power.phase_diff))
     
             # Check if it's time to create a new FLAC file
             t = datetime.datetime.fromtimestamp(adc_data.time)
