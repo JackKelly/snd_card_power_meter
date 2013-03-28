@@ -138,10 +138,6 @@ def calculate_calibrated_power(split_adc_data, adc_rms, calibration):
         - amps_rms (float): amps
         - power_factor (float)
         - frequency (float): voltage frequency in Hz
-        - phase_diff (float or None): phase difference in degrees
-            +ve : current leads voltage (capacitive)
-            -ve : current lags voltage (inductive)
-            None : unknown
     """
     
     data = Bunch()
@@ -166,14 +162,6 @@ def calculate_calibrated_power(split_adc_data, adc_rms, calibration):
     
     # Power factor
     data.power_factor = data.real_power / data.apparent_power
-    
-    # Is power factor leading (capacitive) or lagging (inductive)?
-    try:
-        data.phase_diff = (get_phase_diff(split_adc_data) -
-                           calibration.phase_diff) / config.SAMPLES_PER_DEGREE
-    except ZeroCrossingError as e:
-        log.warn(str(e))
-        data.phase_diff = None # unknown
     
     return data
 
