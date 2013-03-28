@@ -1,11 +1,12 @@
 #! /usr/bin/python
 
 """
-Data written to config.DATA_FILENAME. Multiple columns separated by a space:
+Data written to config.DAT_FILENAME. Multiple columns separated by a space:
  1. UNIX timestamp
  2. real power (watts)
  3. apparent power (VA)
  4. volts RMS
+ 
 """
 
 from __future__ import print_function, division
@@ -44,7 +45,7 @@ class Recorder(object):
                                                     calibration)
 
             # Dump power data to disk
-            with open(config.DATA_FILENAME, 'a') as data_file:
+            with open(config.DAT_FILENAME, 'a') as data_file:
                 data_file.write('{:.1f} {:.2f} {:.2f} {:.2f}\n'
                                 .format(adc_data.time, power.real_power,
                                         power.apparent_power, power.volts_rms))
