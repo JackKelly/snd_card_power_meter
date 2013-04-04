@@ -20,12 +20,16 @@ def main():
     # mustn't touch it.
     wav_files.sort()
     last_wavfile = config.FLAC_DIR + "/" + wav_files[-1]
+    print("Checking last wav file", last_wavfile, "to see if it's currently"
+          " being updated...")
     size1 = os.path.getsize(last_wavfile)
     time.sleep(2)
     size2 = os.path.getsize(last_wavfile)
     if size2 > size1:
-        print("Not processing", last_wavfile, "because it was just updated.")
+        print("Not processing", last_wavfile, "because it was just updated.\n")
         wav_files.pop()
+    else:
+        print(last_wavfile, "is not being updated so will process it now.\n")
     
     wav_files_prefixes = [f.rpartition('.')[0] for f in wav_files]
     
