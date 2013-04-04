@@ -576,7 +576,7 @@ def get_wavfile_name(t):
     Returns:
         string: filename for a wavfile (without suffix).
     """
-    dt = datetime.datetime.fromtimestamp(t)
+    dt = datetime.datetime.utcfromtimestamp(t)
     filename = (config.FLAC_FILENAME_PREFIX + 
                 dt.strftime('%Y_%m_%d_%H_%M_%S_') + str(dt.microsecond))
     return filename
