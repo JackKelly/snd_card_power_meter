@@ -37,7 +37,7 @@ DATA_DIR = os.path.realpath(BASE_DATA_DIR) + "/high-freq-mains"
 if not os.path.isdir(DATA_DIR):
     os.makedirs(DATA_DIR)    
 
-dt = datetime.datetime.now()
+dt = datetime.datetime.utcnow()
 DAT_FILENAME = DATA_DIR + dt.strftime('/mains-%Y_%m_%d_%H_%M_%S.dat')
 
 #####################################
