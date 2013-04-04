@@ -3,6 +3,7 @@
 from __future__ import print_function, division
 import pyaudio, os, sys, datetime
 
+##########################################################################
 # SAMPLING PARAMETERS
 FRAME_RATE = 48000 # The sound card sampling rate in Hz
 DOWNSAMPLED_RATE = 16000 # Hz (MIT REDD uses 15kHz but 16kHz is a standard
@@ -15,27 +16,39 @@ SAMPLE_WIDTH = pyaudio.get_sample_size(SAMPLE_FORMAT)
 N_READS_PER_QUEUE_ITEM = int(round((FRAME_RATE / FRAMES_PER_BUFFER) 
                                    * RECORD_SECONDS))
 
-# MAINS PARAMETERES
+##########################################################################
+# MAINS PARAMETERS
 MAINS_HZ = 50
 SAMPLES_PER_MAINS_CYCLE = FRAME_RATE / MAINS_HZ
 PHASE_DIFF_TOLERANCE = SAMPLES_PER_MAINS_CYCLE / 4
 SAMPLES_PER_DEGREE = SAMPLES_PER_MAINS_CYCLE / 360
 
-# FILENAMES
-DATA_DIR = os.environ.get("DATA_DIR")
-if DATA_DIR is None:
+##########################################################################
+# FILENAMES AND DIRECTORIES
+BASE_DATA_DIR = os.environ.get("DATA_DIR")
+if BASE_DATA_DIR is None:
     print("Please set the $DATA_DIR environment variable.", file=sys.stderr)
     sys.exit(1)
 
-DATA_DIR = os.path.realpath(DATA_DIR) + "/high-freq-mains"
+#################################
+# Directory for the *.dat files
+DATA_DIR = os.path.realpath(BASE_DATA_DIR) + "/high-freq-mains"
 
 if not os.path.isdir(DATA_DIR):
     os.makedirs(DATA_DIR)    
 
-FLAC_FILENAME_PREFIX = DATA_DIR + "/vi-" # short for "voltage and current"
-
 dt = datetime.datetime.now()
 DAT_FILENAME = DATA_DIR + dt.strftime('/mains-%Y_%m_%d_%H_%M_%S.dat')
 
+#####################################
+# Directory and prefix for FLAC files
+FLAC_DIR = "/flac"
+if not os.path.isdir(FLAC_DIR):
+    os.makedirs(FLAC_DIR)    
+
+FLAC_FILENAME_PREFIX = FLAC_DIR + "/vi-" # short for "voltage and current"
+
+####################################
+# Misc filenames
 LOG_FILENAME = os.path.dirname(__file__) + "/../scpm.log"
 CALIBRATION_FILENAME = os.path.dirname(__file__) + "/../calibration.cfg"
