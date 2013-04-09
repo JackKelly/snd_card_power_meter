@@ -37,7 +37,7 @@ DATA_DIR = os.path.realpath(BASE_DATA_DIR) + "/high-freq-mains"
 if not os.path.isdir(DATA_DIR):
     os.makedirs(DATA_DIR)    
 
-DAT_FILENAME = DATA_DIR + '/mains-{:.1f}.dat'.format(time.time())
+DAT_FILENAME = DATA_DIR + '/mains-{:d}.dat'.format(int(round(time.time())))
 
 #####################################
 # Directory and prefix for FLAC files
