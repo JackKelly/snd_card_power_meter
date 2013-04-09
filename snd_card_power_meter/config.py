@@ -1,7 +1,7 @@
 """Basic config parameters"""
 
 from __future__ import print_function, division
-import pyaudio, os, sys, datetime
+import pyaudio, os, sys, time
 
 ##########################################################################
 # SAMPLING PARAMETERS
@@ -37,8 +37,7 @@ DATA_DIR = os.path.realpath(BASE_DATA_DIR) + "/high-freq-mains"
 if not os.path.isdir(DATA_DIR):
     os.makedirs(DATA_DIR)    
 
-dt = datetime.datetime.now()
-DAT_FILENAME = DATA_DIR + dt.strftime('/mains-%Y_%m_%d_%H_%M_%S.dat')
+DAT_FILENAME = DATA_DIR + '/mains-{:.1f}.dat'.format(time.time())
 
 #####################################
 # Directory and prefix for FLAC files

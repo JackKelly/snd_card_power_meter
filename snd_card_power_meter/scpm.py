@@ -566,20 +566,6 @@ def calibrate(adc_data_queue, wu):
                 calibration_parser.write(calibfile)
         else:
             print("Could not find match for", wu_data.time, file=sys.stderr)
-            
-
-    
-def get_wavfile_name(t):
-    """
-    Args:
-        t (float): UNIX timestamp on which to base the filename
-    Returns:
-        string: filename for a wavfile (without suffix).
-    """
-    dt = datetime.datetime.utcfromtimestamp(t)
-    filename = (config.FLAC_FILENAME_PREFIX + 
-                dt.strftime('%Y_%m_%d_%H_%M_%S_') + str(dt.microsecond))
-    return filename
 
 
 def get_wavfile(wavefile_name):
