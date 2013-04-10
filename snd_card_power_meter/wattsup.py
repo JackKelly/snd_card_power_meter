@@ -114,7 +114,7 @@ class WattsUp(object):
                 os.kill(int(pid), 1)
             
         ON_POSIX = 'posix' in sys.builtin_module_names
-        CMD = "wattsup -t ttyUSB1 watts volts amps power-factor"
+        CMD = "wattsup -t ttyUSB0 watts volts amps power-factor"
         self._wu_process = subprocess.Popen(shlex.split(CMD), 
                                             stdout=subprocess.PIPE,
                                             stderr=subprocess.STDOUT,
@@ -133,9 +133,9 @@ class WattsUp(object):
             if self._wu_process.returncode is not None:
                 # process has terminated so stdout will have an EOF so
                 # stdout.read() will return.
-                log.warn("wattsup error: {}"
-                         .format(self._wu_process.stdout.read()))
-                raise WattsUpError("ERROR: wattsup has died")
+                wu_error = self._wu_process.stdout.read()
+                log.warn("wattsup error: " + wu_error)
+                raise WattsUpError("ERROR: wattsup error: " + wu_error)
         
     def get(self):
         # Check wattsup process is still alive, if not then raise WattsUpError
