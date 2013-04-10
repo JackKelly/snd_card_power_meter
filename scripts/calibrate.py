@@ -4,6 +4,9 @@
 Calibration with a Watts Up
 ---------------------------
 
+Requires wattsup UNIX tool available from here:
+https://www.wattsupmeters.com/secure/support.php
+
 NEW CALIBRATION TECHNIQUE:
     Plug in a WattsUp
         run ./calibrate.py

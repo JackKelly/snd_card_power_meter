@@ -6,7 +6,7 @@ Requirements:
     - wattsup LinuxUtility on the path
           Download from https://www.wattsupmeters.com/secure/support.php
           
-    - wattsup meter plugged into ttyUSB0
+    - wattsup meter plugged into USB
 
 Usage:
     wu = WattsUp() 

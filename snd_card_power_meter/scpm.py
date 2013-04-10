@@ -22,7 +22,7 @@ import numpy as np
 import wave
 import sys
 import audioop # docs: http://docs.python.org/2/library/audioop.html
-import time, datetime
+import time
 import logging.handlers
 log = logging.getLogger("scpm")
 import ConfigParser # docs: http://docs.python.org/2/library/configparser.html
