@@ -75,15 +75,21 @@ def shift_phase(voltage, current, calibration=None):
     
     Args:
         voltage, current (numpy arrays)
+        
         calibration: Bunch with fields:
-            - phase_diff
+            - phase_diff_n_samples (float): phase difference in number of
+              samples
+              
+    Returns:
+        voltage, current (numpy arrays)
     """
     if (calibration is None or 
-        calibration.__dict__.get("phase_diff") is None or
+        calibration.__dict__.get("phase_diff_n_samples") is None or
         np.isnan(calibration.phase_diff)):
+        log.info("Not doing phase correction.")
         return voltage, current
     
-    pd = abs(int(round(calibration.phase_diff)))
+    pd = abs(int(round(calibration.phase_diff_n_samples)))
     if pd == 0:
         pass
     elif calibration.phase_diff > 0: # I leads V
@@ -333,7 +339,7 @@ def get_phase_diff(split_adc_data, tolerance=config.PHASE_DIFF_TOLERANCE,
         display (boolean): Optional. If True then print info about phase diff.
     
     Returns:
-        The mean number of samples by which the +ve peaks of the current
+        The mean degrees by which the +ve peaks of the current
         and voltage waveforms differ.  
         Positive means current leads voltage ("leading" AKA capacitive)
         Negative means current lags voltage ("lagging" AKA inductive)
@@ -342,6 +348,8 @@ def get_phase_diff(split_adc_data, tolerance=config.PHASE_DIFF_TOLERANCE,
 
     voltage, current = convert_adc_to_numpy_float(split_adc_data)
     FREQ = get_frequency(voltage)
+    SAMPLES_PER_MAINS_CYCLE = config.FRAME_RATE / FREQ
+    SAMPLES_PER_DEGREE = SAMPLES_PER_MAINS_CYCLE / 360    
     v_peaks = indices_of_positive_peaks(voltage, FREQ)
     i_peaks = indices_of_positive_peaks(current, FREQ)
     
@@ -373,7 +381,7 @@ def get_phase_diff(split_adc_data, tolerance=config.PHASE_DIFF_TOLERANCE,
             else:
                 i_offset += 1
 
-    mean_phase_diff = np.mean(phase_diffs)
+    mean_samples_phase_diff = np.mean(phase_diffs)
     
     if display:
         std_phase_diff = np.std(phase_diffs)
@@ -381,13 +389,13 @@ def get_phase_diff(split_adc_data, tolerance=config.PHASE_DIFF_TOLERANCE,
         print("  phase diff mean samples = {:.1f}, mean degrees = {:.2f}\n"
               "  phase diff std samples  = {:.3f},  std degrees = {:.2f}\n"
               "  phase diff number of valid comparisons = {}"
-              .format(mean_phase_diff,
-                      mean_phase_diff / config.SAMPLES_PER_DEGREE,
+              .format(mean_samples_phase_diff,
+                      mean_samples_phase_diff / SAMPLES_PER_DEGREE,
                       std_phase_diff,
-                      std_phase_diff / config.SAMPLES_PER_DEGREE,
+                      std_phase_diff / SAMPLES_PER_DEGREE,
                       len(phase_diffs)))
     
-    return mean_phase_diff
+    return mean_samples_phase_diff / SAMPLES_PER_DEGREE
 
 
 def load_calibration_file(calibration_parser=None):
@@ -396,7 +404,8 @@ def load_calibration_file(calibration_parser=None):
     Returns a Bunch with fields:
         - volts_per_adc_step (float)
         - amps_per_adc_step (float)
-        - phase_diff (float)
+        - phase_diff (float): degrees
+        - phase_diff_n_samples (float): phase diff in samples
         - watts_per_adc_step (float)
     """
     log.info("Opening calibration file...")
@@ -410,25 +419,34 @@ def load_calibration_file(calibration_parser=None):
     try:
         calib.volts_per_adc_step = calibration_parser.getfloat(calib_section, 
                                                           "volts_per_adc_step")
+        log.info("VOLTS_PER_ADC_STEP = {}".format(calib.volts_per_adc_step))
+                
         calib.amps_per_adc_step = calibration_parser.getfloat(calib_section,
                                                          "amps_per_adc_step")
+        log.info("AMPS_PER_ADC_STEP  = {}".format(calib.amps_per_adc_step))
+                
         calib.phase_diff = calibration_parser.getfloat(calib_section,
                                                   "phase_difference")
+        log.info("PHASE DIFFERENCE   = {} degrees".format(calib.phase_diff))
+        
+        calib.phase_diff_n_samples = (calib.phase_diff *
+                                      config.SAMPLES_PER_DEGREE)
+        
+        log.info("PHASE DIFFERENCE   = {} samples"
+                 .format(calib.phase_diff_n_samples))
+        
     except (ConfigParser.NoOptionError, ConfigParser.NoSectionError) as e:
         log.warn("Error loading option from config file: {}".format(str(e)))
-        return None
     else:
         calib.watts_per_adc_step = (calib.volts_per_adc_step * 
                                     calib.amps_per_adc_step)   
-        log.info("VOLTS_PER_ADC_STEP = {}".format(calib.volts_per_adc_step))
-        log.info("AMPS_PER_ADC_STEP  = {}".format(calib.amps_per_adc_step))
         log.info("WATTS_PER_ADC_STEP = {}".format(calib.watts_per_adc_step))
         
     log.info("Finished loading calibration file.")
     return calib
 
 
-def print_power(calcd_data, wu_data=None):
+def print_power(calcd_data=None, wu_data=None):
     def diff(a, b):
         try:
             difference = abs(a-b) / max(a,b)
@@ -437,26 +455,22 @@ def print_power(calcd_data, wu_data=None):
         else:
             return difference
     
-    if calcd_data.phase_diff is None:
-        leading_or_lagging = "unknown"
-    else:
-        leading_or_lagging = ("I leads V (capacitive)"
-                              if calcd_data.phase_diff > 0
-                              else "I lags V (inductive)")
-        leading_or_lagging += " {:.3f} degrees".format(calcd_data.phase_diff)
+    if wu_data is not None or calcd_data is not None:
+        print("         VOLTS  |   AMPS |     REAL |  APPARENT |  PF ")
     
-    print("         VOLTS  |   AMPS |     REAL |  APPARENT |  PF ")
-    print("   SCPM: {:>6.1f} | {:>6.3f} | {:>8.1f} |  {:>8.2f} | {:>3.2f} {}"
-          .format(calcd_data.volts_rms, calcd_data.amps_rms, 
-                  calcd_data.real_power, calcd_data.apparent_power, 
-                  calcd_data.power_factor, leading_or_lagging))
+    if calcd_data is not None:
+        print("   SCPM: {:>6.1f} | {:>6.3f} | {:>8.1f} |  {:>8.2f} | {:>3.2f}"
+              .format(calcd_data.volts_rms, calcd_data.amps_rms, 
+                      calcd_data.real_power, calcd_data.apparent_power, 
+                      calcd_data.power_factor))
     
     if wu_data is not None:
         print("WattsUp: {:>6.1f} | {:>6.3f} | {:>8.1f} |  {:>8.2f} | {:>3.2f}"
               .format(wu_data.volts_rms, wu_data.amps_rms, 
                       wu_data.real_power, wu_data.apparent_power, 
                       wu_data.power_factor))
-        
+    
+    if wu_data is not None and calcd_data is not None:
         print("   Diff:{:>7.3%} |{:>7.3%} |  {:>7.3%} |   {:>7.3%} |{:>7.3%}"
               .format(diff(calcd_data.volts_rms, wu_data.volts_rms),
                       diff(calcd_data.amps_rms, wu_data.amps_rms),
@@ -464,7 +478,8 @@ def print_power(calcd_data, wu_data=None):
                       diff(calcd_data.apparent_power, wu_data.apparent_power),
                       diff(calcd_data.power_factor, wu_data.power_factor)))
 
-    print("SCPM voltage frequency: {:.3f}".format(calcd_data.frequency))
+    if calcd_data is not None:
+        print("SCPM voltage frequency: {:.3f}".format(calcd_data.frequency))
 
 
 def calibrate(adc_data_queue, wu):
@@ -530,7 +545,8 @@ def calibrate(adc_data_queue, wu):
                         processing_pf = True
                         n_pd_samples += 1
                         calib.phase_diff = pd_acumulator / n_pd_samples
-                        print("Average phase diff =", calib.phase_diff)
+                        print("Average phase diff = {:.2f} degrees."
+                              .format(calib.phase_diff))
                         calibration_parser.set("Calibration", "phase_difference",
                                           calib.phase_diff)
                 else:
@@ -551,6 +567,7 @@ def calibrate(adc_data_queue, wu):
                                                         adc_rms, calib)
             except AttributeError as e:
                 log.debug(str(e))
+                print_power(wu_data=wu_data)
             else:
                 print_power(calcd_data, wu_data)
                 calibration_parser.set("Calibration", "amps_per_adc_step",

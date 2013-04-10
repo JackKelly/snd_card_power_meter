@@ -20,7 +20,6 @@ Log data from Watts Up using
 """
 
 from __future__ import print_function, division
-import sys
 import snd_card_power_meter.scpm as scpm
 from snd_card_power_meter.sampler import Sampler
 from snd_card_power_meter.wattsup import WattsUp
