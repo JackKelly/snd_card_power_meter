@@ -55,7 +55,7 @@ class Recorder(object):
             if self.wavfile is None or t.hour == (prev_conv_time.hour+1)%24:
                 self._close_and_compress_wavfile()
                 self.wavfile_name = (config.FLAC_FILENAME_PREFIX + 
-                                     '{:f}'.format(adc_data.time)
+                                     '{:.6f}'.format(adc_data.time)
                                      .replace('.', '_'))
                 self.wavfile = scpm.get_wavfile(self.wavfile_name)
             prev_conv_time = t
