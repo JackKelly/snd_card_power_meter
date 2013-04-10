@@ -1,4 +1,8 @@
 #! /usr/bin/python
+"""
+Requires the UNIX tool 'amixer'.
+"""
+
 from __future__ import print_function
 import subprocess, sys
 
@@ -8,6 +12,7 @@ def run_command(cmd):
     Args:
         cmd (list of strings)
     """
+    print("Running '{}'...".format(" ".join(cmd)))
     try:
         proc = subprocess.Popen(cmd, stderr=subprocess.PIPE)
         proc.wait()
@@ -22,14 +27,16 @@ def run_command(cmd):
             print("ERROR: Failed to run '{}'".format(" ".join(cmd)),
                    file=sys.stderr)
             print(proc.stderr.read(), file=sys.stderr)
+    print("")
 
 
 def config_mixer():
     print("Configuring mixer...")
-    # TODO: good levels are CAPTURE: L=47, R=27. DIGITAL=24
     run_command(["amixer", "sset", "Input Source", "Rear Mic"])
-    run_command(["amixer", "set", "Digital", "60", "capture"])
-    run_command(["amixer", "set", "Capture", "16", "capture"])
+    run_command(["amixer", "set", "Digital", "60", "cap", "capture"])
+    run_command(["amixer", "set", "Capture", "15dB,6dB", "cap", "capture"])
+    run_command(["amixer", "set", "Rear Mic Boost", "0", "cap", "capture"])
+    run_command(["amixer", "set", "Front Mic Boost", "0", "cap", "capture"])
 
 
 if __name__=="__main__":
