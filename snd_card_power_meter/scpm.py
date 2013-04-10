@@ -85,14 +85,14 @@ def shift_phase(voltage, current, calibration=None):
     """
     if (calibration is None or 
         calibration.__dict__.get("phase_diff_n_samples") is None or
-        np.isnan(calibration.phase_diff)):
+        np.isnan(calibration.phase_diff_n_samples)):
         log.info("Not doing phase correction.")
         return voltage, current
     
     pd = abs(int(round(calibration.phase_diff_n_samples)))
     if pd == 0:
         pass
-    elif calibration.phase_diff > 0: # I leads V
+    elif calibration.phase_diff_n_samples > 0: # I leads V
         voltage = voltage[pd:]
         current = current[:-pd]
     else:
@@ -135,6 +135,7 @@ def calculate_calibrated_power(split_adc_data, adc_rms, calibration):
         - watts_per_adc_step (float)
         - volts_per_adc_step (float)
         - amps_per_adc_step (float)
+        - phase_diff_n_samples (float)
         
     Returns:
         Bunch with fields:
@@ -187,7 +188,7 @@ def plot(voltage, current, calibration=None):
     """
     import matplotlib.pyplot as plt
     
-    if calibration:
+    if calibration is not None:
         print("volts_per_adc_step =", calibration.volts_per_adc_step)
         print("amps_per_adc_step =", calibration.amps_per_adc_step)
         v_unit = "V"
@@ -324,7 +325,7 @@ def get_frequency(data):
 
 
 def get_phase_diff(split_adc_data, tolerance=config.PHASE_DIFF_TOLERANCE,
-                   display=False):
+                   display=True):
     """Finds the phase difference between the positive peaks
     of the voltage and current waveforms.
     
@@ -349,28 +350,29 @@ def get_phase_diff(split_adc_data, tolerance=config.PHASE_DIFF_TOLERANCE,
     voltage, current = convert_adc_to_numpy_float(split_adc_data)
     FREQ = get_frequency(voltage)
     SAMPLES_PER_MAINS_CYCLE = config.FRAME_RATE / FREQ
-    SAMPLES_PER_DEGREE = SAMPLES_PER_MAINS_CYCLE / 360    
-    v_peaks = indices_of_positive_peaks(voltage, FREQ)
-    i_peaks = indices_of_positive_peaks(current, FREQ)
+    SAMPLES_PER_DEGREE = SAMPLES_PER_MAINS_CYCLE / 360
+     
+    vzc = positive_zero_crossings(voltage)
+    izc = positive_zero_crossings(current)
     
-    if v_peaks is None or i_peaks is None:
-        raise ZeroCrossingError("ERROR: Cannot find peaks!"
+    if vzc is None or izc is None:
+        raise ZeroCrossingError("ERROR: Cannot zero crossings!"
                                 " Are both sensors plugged in?")
     
     # sanity check length
-    if not (len(i_peaks)-2 < len(v_peaks) < len(i_peaks)+2):
-        raise ZeroCrossingError("ERROR: number of current peaks ({})"
+    if not (len(izc)-2 < len(vzc) < len(izc)+2):
+        raise ZeroCrossingError("ERROR: number of current zero crossings ({})"
                                 " too dissimilar to\n"
-                                "       number of voltage peak ({})."
-                                .format(len(i_peaks), len(v_peaks)))
+                                "       number of voltage zero crossings ({})."
+                                .format(len(izc), len(vzc)))
 
     
-    # go through each peak in turn and compare I with V
+    # go through each zero crossing in turn and compare I with V
     i_offset = 0
     phase_diffs = []
-    for i in range(len(v_peaks)):
+    for i in range(len(vzc)):
         try:
-            phase_diff = i_peaks[i+i_offset] - v_peaks[i]
+            phase_diff = vzc[i] - izc[i+i_offset]
         except IndexError:
             continue
         else:
@@ -407,6 +409,8 @@ def load_calibration_file(calibration_parser=None):
         - phase_diff (float): degrees
         - phase_diff_n_samples (float): phase diff in samples
         - watts_per_adc_step (float)
+        
+    Returns None if file doesn't exist or if volts_per_adc_step doesn't exist.
     """
     log.info("Opening calibration file...")
     
@@ -419,6 +423,11 @@ def load_calibration_file(calibration_parser=None):
     try:
         calib.volts_per_adc_step = calibration_parser.getfloat(calib_section, 
                                                           "volts_per_adc_step")
+    except (ConfigParser.NoOptionError, ConfigParser.NoSectionError) as e:
+        log.warn("Error loading option from config file: {}".format(str(e)))
+        return
+    
+    try:
         log.info("VOLTS_PER_ADC_STEP = {}".format(calib.volts_per_adc_step))
                 
         calib.amps_per_adc_step = calibration_parser.getfloat(calib_section,
