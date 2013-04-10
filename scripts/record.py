@@ -134,8 +134,8 @@ def main():
     except KeyboardInterrupt:
         recorder.terminate()
     except:
+        log.exception('')        
         recorder.terminate()
-        print("Unexpected exception!")
         raise
 
 
