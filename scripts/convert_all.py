@@ -10,7 +10,7 @@ import snd_card_power_meter.config as config
 
 def main():
     all_files = os.listdir(config.FLAC_DIR)
-    wav_files = [f for f in all_files if f.rpartition('.')[-1]=='wav']
+    wav_files = [f for f in all_files if f.endswith('.wav')]
     
     if not wav_files:
         print("No wav files in", config.FLAC_DIR)
