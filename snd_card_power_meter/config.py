@@ -5,7 +5,7 @@ import pyaudio, os, sys, time
 
 ##########################################################################
 # SAMPLING PARAMETERS
-FRAME_RATE = 48000 # The sound card sampling rate in Hz
+FRAME_RATE = 44100 # The sound card sampling rate in Hz
 DOWNSAMPLED_RATE = 16000 # Hz (MIT REDD uses 15kHz but 16kHz is a standard
 #                              rate and so increases compatibility)
 RECORD_SECONDS = 1 # Seconds to record per queue item
