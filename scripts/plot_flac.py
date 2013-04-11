@@ -68,9 +68,11 @@ def get_adc_data(wavfile):
 def setup_argparser():
     # Process command line _args
     parser = argparse.ArgumentParser(description="Load and plot power data "
-                                                 "from FLAC file.")
+                                                 "from FLAC or WAV file.")
        
-    parser.add_argument('input_file', help='FLAC file to read. NO suffix!')
+    parser.add_argument('input_file', help='FLAC or WAV file to read. NO suffix!')
+
+    parser.add_argument('--calibration-file', dest='calibration_file')
 
     args = parser.parse_args()
     return args
@@ -80,10 +82,13 @@ def main():
     
     args = setup_argparser()
     
-    calibration = scpm.load_calibration_file()
     wavfile = uncompress_and_load(args.input_file)
     sample_width = wavfile.getsampwidth()
+    samples_per_degree = (wavfile.getframerate() / config.MAINS_HZ) / 360
     
+    calibration = scpm.load_calibration_file(filename=args.calibration_file,
+                                             samples_per_degree=samples_per_degree)
+        
     adc_data = get_adc_data(wavfile)
     split_adc_data = scpm.split_channels(adc_data.data, sample_width)
     adc_rms = scpm.calculate_adc_rms(split_adc_data, sample_width)
@@ -94,7 +99,6 @@ def main():
     scpm.print_power(calcd_data)
     voltage, current = scpm.convert_adc_to_numpy_float(split_adc_data)
     scpm.plot(voltage, current, calibration)
-
 
     wavfile.close()
 

@@ -400,7 +400,8 @@ def get_phase_diff(split_adc_data, tolerance=config.PHASE_DIFF_TOLERANCE,
     return mean_samples_phase_diff / SAMPLES_PER_DEGREE
 
 
-def load_calibration_file(calibration_parser=None):
+def load_calibration_file(calibration_parser=None, filename=None,
+                          samples_per_degree=config.SAMPLES_PER_DEGREE):
     """Loads config.CALIBRATION_FILENAME.
     
     Returns a Bunch with fields:
@@ -416,7 +417,8 @@ def load_calibration_file(calibration_parser=None):
     
     if calibration_parser is None:
         calibration_parser = ConfigParser.RawConfigParser()
-        calibration_parser.read(config.CALIBRATION_FILENAME)
+        calibration_parser.read(config.CALIBRATION_FILENAME if filename is None
+                                else filename)
         
     calib = Bunch()
     calib_section = "Calibration"
@@ -438,8 +440,7 @@ def load_calibration_file(calibration_parser=None):
                                                   "phase_difference")
         log.info("PHASE DIFFERENCE   = {} degrees".format(calib.phase_diff))
         
-        calib.phase_diff_n_samples = (calib.phase_diff *
-                                      config.SAMPLES_PER_DEGREE)
+        calib.phase_diff_n_samples = calib.phase_diff * samples_per_degree
         
         log.info("PHASE DIFFERENCE   = {} samples"
                  .format(calib.phase_diff_n_samples))
