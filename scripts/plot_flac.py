@@ -1,6 +1,6 @@
 #! /usr/bin/python
 """
-Plot data from a FLAC file.
+Plot power data from a FLAC or WAV file.
 
 Dependencies
 ------------
@@ -73,6 +73,8 @@ def setup_argparser():
     parser.add_argument('input_file', help='FLAC or WAV file to read. NO suffix!')
 
     parser.add_argument('--calibration-file', dest='calibration_file')
+    
+    parser.add_argument('--correct-phase', action='store_true')
 
     args = parser.parse_args()
     return args
@@ -98,6 +100,14 @@ def main():
     print("")
     scpm.print_power(calcd_data)
     voltage, current = scpm.convert_adc_to_numpy_float(split_adc_data)
+    if args.correct_phase:
+        print("Correcting phase by {} degrees = {} samples."
+              .format(calibration.phase_diff, calibration.phase_diff_n_samples))
+        voltage, current = scpm.shift_phase(voltage, current, calibration)
+    else:
+        print("Not correcting phase difference"
+              " (use --correct-phase to correct phase)")
+
     scpm.plot(voltage, current, calibration)
 
     wavfile.close()
