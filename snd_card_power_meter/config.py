@@ -10,7 +10,7 @@ DOWNSAMPLED_RATE = 16000 # Hz (MIT REDD uses 15kHz but 16kHz is a standard
 #                              rate and so increases compatibility)
 RECORD_SECONDS = 1 # Seconds to record per queue item
 N_CHANNELS = 2 # one for voltage, one for current 
-FRAMES_PER_BUFFER = 2048
+FRAMES_PER_BUFFER = 1024
 SAMPLE_FORMAT = pyaudio.paInt32
 SAMPLE_WIDTH = pyaudio.get_sample_size(SAMPLE_FORMAT)
 N_READS_PER_QUEUE_ITEM = int(round(FRAME_RATE / FRAMES_PER_BUFFER
