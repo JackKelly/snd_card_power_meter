@@ -58,7 +58,7 @@ class Sampler(threading.Thread):
         t = time.time()
         frames = []
         RETRIES = 5
-        for _ in range(config.N_READS_PER_QUEUE_ITEM):
+        for i in range(config.N_READS_PER_QUEUE_ITEM):
             for __ in range(RETRIES):
                 if self._abort.is_set():
                     return
@@ -68,7 +68,8 @@ class Sampler(threading.Thread):
                     data = self._audio_stream.read(config.FRAMES_PER_BUFFER)
                 except IOError, e:
 #                    self._safe_to_stop_audio_stream.set()
-                    log.warn(str(e))
+                    log.warn(str(e) + " at iteration {}/{}"
+                             .format(i,config.N_READS_PER_QUEUE_ITEM))
                 else:
 #                    self._safe_to_stop_audio_stream.set()
                     frames.append(data)
