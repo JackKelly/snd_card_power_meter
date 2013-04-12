@@ -50,4 +50,4 @@ FLAC_FILENAME_PREFIX = FLAC_DIR + "/vi-" # short for "voltage and current"
 ####################################
 # Misc filenames
 LOG_FILENAME = os.path.dirname(__file__) + "/../scpm.log"
-CALIBRATION_FILENAME = os.path.dirname(__file__) + "/../calibration.cfg"
+CALIBRATION_FILENAME = "/flac/calibration.cfg"
