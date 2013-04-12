@@ -33,13 +33,14 @@ class Recorder(object):
 
         prev_conv_time = None # the last time sox was run
         while True:
-            adc_data = self.sampler.adc_data_queue.get()
-            if adc_data is None:
+            raw_adc_data = self.sampler.adc_data_queue.get()
+            if raw_adc_data is None:
                 log.warn("adc_data was None!")
                 continue
             
             # Calculate real power, apparent power, v_rms
-            split_adc_data = scpm.split_channels(adc_data.data)
+            adc_data = scpm.join_frames_and_widen(raw_adc_data) 
+            split_adc_data = scpm.split_channels(adc_data)
             adc_rms = scpm.calculate_adc_rms(split_adc_data)
             power = scpm.calculate_calibrated_power(split_adc_data, adc_rms, 
                                                     calibration)
@@ -61,7 +62,7 @@ class Recorder(object):
             prev_conv_time = t
             
             # Write uncompressed wav data to disk
-            self.wavfile.writeframes(adc_data.data)
+            self.wavfile.writeframes(b''.join(raw_adc_data.data))
             
     def _close_and_compress_wavfile(self):
         if self.wavfile is None:
@@ -76,7 +77,7 @@ class Recorder(object):
         # sox is a high quality audio conversion program
         # the "rate -v -L" option forces very high quality
         # rate conversion with linear phase.
-        cmd = ("sox --no-dither {filename}.wav --bits 24"
+        cmd = ("sox --no-dither {filename}.wav"
                " --compression 8 {filename}.flac"
                " rate -v -L {downsampled_rate}"
                " && rm {filename}.wav"

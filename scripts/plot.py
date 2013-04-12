@@ -26,7 +26,8 @@ def main():
         sampler.terminate()
     else:
         sampler.terminate()
-        split_adc_data = scpm.split_channels(adc_data.data)
+        adc_data = scpm.join_frames_and_widen(adc_data)
+        split_adc_data = scpm.split_channels(adc_data)
         adc_rms = scpm.calculate_adc_rms(split_adc_data)
         if calibration is not None:
             calcd_data = scpm.calculate_calibrated_power(split_adc_data, 

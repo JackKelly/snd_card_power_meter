@@ -62,7 +62,7 @@ def get_adc_data(wavfile):
     for _ in range(n_reads_per_queue_item):
         frames.append(wavfile.readframes(config.FRAMES_PER_BUFFER))
         
-    return Bunch(data=b''.join(frames))
+    return Bunch(data=frames)
 
 
 def setup_argparser():
@@ -72,7 +72,8 @@ def setup_argparser():
        
     parser.add_argument('input_file', help='FLAC or WAV file to read. NO suffix!')
 
-    parser.add_argument('--calibration-file', dest='calibration_file')
+    parser.add_argument('--calibration-file', dest='calibration_file',
+                        default=config.CALIBRATION_FILENAME)
     
     parser.add_argument('--correct-phase', action='store_true')
 
@@ -85,28 +86,32 @@ def main():
     args = setup_argparser()
     
     wavfile = uncompress_and_load(args.input_file)
-    sample_width = wavfile.getsampwidth()
     samples_per_degree = (wavfile.getframerate() / config.MAINS_HZ) / 360
-    
     calibration = scpm.load_calibration_file(filename=args.calibration_file,
                                              samples_per_degree=samples_per_degree)
-        
     adc_data = get_adc_data(wavfile)
-    split_adc_data = scpm.split_channels(adc_data.data, sample_width)
-    adc_rms = scpm.calculate_adc_rms(split_adc_data, sample_width)
-    calcd_data = scpm.calculate_calibrated_power(split_adc_data, 
-                                            adc_rms, calibration)
+    adc_data.sample_width = wavfile.getsampwidth()
+    adc_data = scpm.join_frames_and_widen(adc_data)
+    split_adc_data = scpm.split_channels(adc_data)
+    adc_rms = scpm.calculate_adc_rms(split_adc_data)
+    voltage, current = scpm.convert_adc_to_numpy_float(split_adc_data)    
     
-    print("")
-    scpm.print_power(calcd_data)
-    voltage, current = scpm.convert_adc_to_numpy_float(split_adc_data)
-    if args.correct_phase:
-        print("Correcting phase by {} degrees = {} samples."
-              .format(calibration.phase_diff, calibration.phase_diff_n_samples))
-        voltage, current = scpm.shift_phase(voltage, current, calibration)
+    if calibration is None:
+        print("No calibration data loaded.")
     else:
-        print("Not correcting phase difference"
-              " (use --correct-phase to correct phase)")
+        calcd_data = scpm.calculate_calibrated_power(split_adc_data, 
+                                                adc_rms, calibration)
+        
+        print("")
+        scpm.print_power(calcd_data)
+    
+        if args.correct_phase:
+            print("Correcting phase by {} degrees = {} samples."
+                  .format(calibration.phase_diff, calibration.phase_diff_n_samples))
+            voltage, current = scpm.shift_phase(voltage, current, calibration)
+        else:
+            print("Not correcting phase difference"
+                  " (use --correct-phase to correct phase)")
 
     scpm.plot(voltage, current, calibration)
 

@@ -31,7 +31,7 @@ class Sampler(threading.Thread):
         self.adc_data_queue = Queue()
         self._port_audio = pyaudio.PyAudio()
         log.info("SAMPLE RATE   = {}".format(config.FRAME_RATE))
-        log.info("SAMPLE FORMAT = {}".format(config.SAMPLE_FORMAT))
+        log.info("SAMPLE WIDTH  = {}".format(config.SAMPLE_WIDTH))
         self._audio_stream = self._port_audio.open(
                                  format=config.SAMPLE_FORMAT,
                                  channels=config.N_CHANNELS,
@@ -53,7 +53,7 @@ class Sampler(threading.Thread):
         Returns:
             Bunch with fields:
             - time (float): UNIX timestamp immediately prior to sampling
-            - data (binary string): stereo ADC data
+            - frames_list (list)
         """
         t = time.time()
         frames = []
@@ -74,8 +74,7 @@ class Sampler(threading.Thread):
                     frames.append(data)
                     break
     
-        stereo = b''.join(frames)
-        return Bunch(time=t, data=stereo)
+        return Bunch(time=t, data=frames, sample_width=config.SAMPLE_WIDTH)
     
     def terminate(self):
         log.info("Terminating Sampler")

@@ -34,22 +34,55 @@ except ImportError:
 import config
 from bunch import Bunch
 
-        
-def split_channels(stereo, sample_width=config.SAMPLE_WIDTH):
+
+def join_frames_and_widen(adc_data):
     """
     Args:
-        stereo (binary string): stereo raw ADC data
+        adc_data: Bunch with the following fields:
+          - data (binary string or list of binary strings): raw ADC data
+          - sample_width (int): number of bytes per sample
+    """
+    adc_data.data = b''.join(adc_data.data)
+    
+    if adc_data.sample_width == 3:
+        adc_data.data = int24_to_int32(adc_data.data)
+        adc_data.sample_width = 4
+        
+    return adc_data
+
+        
+def split_channels(adc_data):
+    """
+    Args:
+        adc_data: Bunch with the following fields:
+          - data (binary string or list of binary strings): raw ADC data
+          - sample_width (int): number of bytes per sample
     
     Returns:
         A Bunch with fields:
         - voltage (binary string): raw ADC data 
         - current (binary string): raw ADC data
+        - sample_width (int): number of bytes per sample
     """
+    
     data = Bunch()
-    data.voltage = audioop.tomono(stereo, sample_width, 1, 0)
-    data.current = audioop.tomono(stereo, sample_width, 0, 1)
+    data.voltage = audioop.tomono(adc_data.data, adc_data.sample_width, 1, 0)
+    data.current = audioop.tomono(adc_data.data, adc_data.sample_width, 0, 1)
+    data.sample_width = adc_data.sample_width
     return data
 
+
+def int24_to_int32(int24_input):
+    n_words = len(int24_input) / 3
+    if not n_words.is_integer():
+        raise ValueError("length of int24_input is not exactly divisible by 3!")
+    
+    int32_string = b''    
+    for i in range(int(n_words)):
+        int32_string += b'\x00' + int24_input[i*3:(i+1)*3]
+
+    return int32_string
+    
 
 def convert_adc_to_numpy_float(split_adc_data):
     """Convert from binary string to numpy array.
@@ -58,11 +91,12 @@ def convert_adc_to_numpy_float(split_adc_data):
         adc_data: a Bunch with fields:
         - voltage (binary string): raw voltage data from ADC
         - current (binary string): raw current data from ADC
+        - sample_width (int): number of bytes per sample
         
     Returns:
         voltage, current (each a float64 numpy vector)
     """
-    d = 'int{:d}'.format(config.SAMPLE_WIDTH * 8) # dtype
+    d = 'int{:d}'.format(split_adc_data.sample_width * 8) # dtype
     voltage = np.fromstring(split_adc_data.voltage, dtype=d).astype(np.float64)
     current = np.fromstring(split_adc_data.current, dtype=d).astype(np.float64)
     
@@ -102,12 +136,13 @@ def shift_phase(voltage, current, calibration=None):
     return voltage, current
 
 
-def calculate_adc_rms(split_adc_data, sample_width=config.SAMPLE_WIDTH):
+def calculate_adc_rms(split_adc_data):
     """
     Args:
         split_adc_data: Bunch with fields:
         - voltage (binary string): raw ADC data
         - current (binary string): raw ADC data
+        - sample_width (int): number of bytes per sample
     
     Returns:
         Bunch with fields:
@@ -115,8 +150,10 @@ def calculate_adc_rms(split_adc_data, sample_width=config.SAMPLE_WIDTH):
         - adc_i_rms (float)    
     """
     data = Bunch()
-    data.adc_v_rms = audioop.rms(split_adc_data.voltage, sample_width)
-    data.adc_i_rms = audioop.rms(split_adc_data.current, sample_width)
+    data.adc_v_rms = audioop.rms(split_adc_data.voltage, 
+                                 split_adc_data.sample_width)
+    data.adc_i_rms = audioop.rms(split_adc_data.current, 
+                                 split_adc_data.sample_width)
     return data
 
 
@@ -528,7 +565,9 @@ def calibrate(adc_data_queue, wu):
         adc_data = find_time(adc_data_queue, wu_data.time)
                 
         if adc_data:
-            split_adc_data = split_channels(adc_data.data)
+            
+            adc_data = join_frames_and_widen(adc_data)
+            split_adc_data = split_channels(adc_data)
             adc_rms = calculate_adc_rms(split_adc_data)
             
             # Voltage
