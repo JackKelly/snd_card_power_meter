@@ -63,14 +63,14 @@ class Sampler(threading.Thread):
                 if self._abort.is_set():
                     return
                 
-                self._safe_to_stop_audio_stream.clear()
+#                self._safe_to_stop_audio_stream.clear()
                 try:
                     data = self._audio_stream.read(config.FRAMES_PER_BUFFER)
                 except IOError, e:
-                    self._safe_to_stop_audio_stream.set()
+#                    self._safe_to_stop_audio_stream.set()
                     log.warn(str(e))
                 else:
-                    self._safe_to_stop_audio_stream.set()
+#                    self._safe_to_stop_audio_stream.set()
                     frames.append(data)
                     break
     
