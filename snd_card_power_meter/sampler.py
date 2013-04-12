@@ -30,6 +30,8 @@ class Sampler(threading.Thread):
         self._safe_to_stop_audio_stream.set()
         self.adc_data_queue = Queue()
         self._port_audio = pyaudio.PyAudio()
+        log.info("SAMPLE RATE   = {}".format(config.FRAME_RATE))
+        log.info("SAMPLE FORMAT = {}".format(config.SAMPLE_FORMAT))
         self._audio_stream = self._port_audio.open(
                                  format=config.SAMPLE_FORMAT,
                                  channels=config.N_CHANNELS,
