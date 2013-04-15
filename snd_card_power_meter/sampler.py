@@ -63,6 +63,7 @@ class Sampler(threading.Thread):
                 if self._abort.is_set():
                     return
                 
+                data = None
                 self._safe_to_stop_audio_stream.clear()
                 try:
                     data = self._audio_stream.read(config.FRAMES_PER_BUFFER)
@@ -70,6 +71,10 @@ class Sampler(threading.Thread):
                     self._safe_to_stop_audio_stream.set()
                     log.warn(str(e) + " at iteration {}/{}"
                              .format(i,config.N_READS_PER_QUEUE_ITEM))
+                    if data is not None:
+                        log.info("read() did return data.  Will use this data")
+                        frames.append(data)
+                        break
                 else:
                     self._safe_to_stop_audio_stream.set()
                     frames.append(data)
