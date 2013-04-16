@@ -1,7 +1,9 @@
 """Basic config parameters"""
 
 from __future__ import print_function, division
-import pyaudio, os, sys, time
+import pyaudio, os, sys, time, inspect
+
+FILE_PATH = os.path.dirname(inspect.getfile(inspect.currentframe()))
 
 ##########################################################################
 # SAMPLING PARAMETERS
@@ -49,5 +51,5 @@ FLAC_FILENAME_PREFIX = FLAC_DIR + "/vi-" # short for "voltage and current"
 
 ####################################
 # Misc filenames
-LOG_FILENAME = os.path.dirname(__file__) + "/../scpm.log"
+LOG_FILENAME = os.path.join(FILE_PATH, "..", "scpm.log")
 CALIBRATION_FILENAME = "/flac/calibration.cfg"
