@@ -20,7 +20,7 @@ Requirements
 from __future__ import print_function, division
 import numpy as np
 import wave
-import sys
+import sys, os
 import audioop # docs: http://docs.python.org/2/library/audioop.html
 import time
 import logging.handlers
@@ -454,8 +454,11 @@ def load_calibration_file(calibration_parser=None, filename=None,
     
     if calibration_parser is None:
         calibration_parser = ConfigParser.RawConfigParser()
-        calibration_parser.read(config.CALIBRATION_FILENAME if filename is None
-                                else filename)
+        filename = config.CALIBRATION_FILENAME if filename is None else filename
+        if not os.path.exists(filename):
+            log.error("Calibration file {} does not exist!".format(filename))
+        calibration_parser.read(filename)
+                                
         
     calib = Bunch()
     calib_section = "Calibration"
