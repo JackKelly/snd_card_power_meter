@@ -59,6 +59,13 @@ class Recorder(object):
                                      '{:.6f}'.format(adc_data.time)
                                      .replace('.', '_'))
                 self.wavfile = scpm.get_wavfile(self.wavfile_name)
+            else:
+                # Poll the sox process to see if it has finished.
+                # We don't really need to do this but it should
+                # prevent the sox process shell from appearing as a 
+                # zombie process.
+                self._check_sox_return_code_no_wait()
+                
             prev_conv_time = t
             
             # Write uncompressed wav data to disk
@@ -71,7 +78,7 @@ class Recorder(object):
         self.wavfile.close()
         
         # Check if the previous conversion process has completed
-        self._check_sox_process_has_completed()
+        self._blocking_check_sox_process_has_completed()
         
         # Run new sox process to compress wav file                
         # sox is a high quality audio conversion program
@@ -89,29 +96,37 @@ class Recorder(object):
                                             stdout=subprocess.PIPE,
                                             stderr=subprocess.PIPE)
 
-    def _check_sox_process_has_completed(self):
+    def _check_sox_return_code_no_wait(self):
+        if (self.sox_process is not None 
+            and self.sox_process.returncode is None):
+               
+            self.sox_process.poll()
+            if self.sox_process.returncode is not None:     
+                if self.sox_process.returncode == 0:
+                    log.info("Previous sox conversion successfully completed!")
+                else:
+                    log.warn("Previous sox conversion FAILED!")
+                    
+                # Log sox output
+                stdout = self.sox_process.stdout.read()
+                stderr = self.sox_process.stderr.read()
+                if stdout:
+                    log.debug("sox stdout: {}".format(stdout))
+                if stderr:
+                    log.debug("sox stderr: {}".format(stderr))
+    
+
+    def _blocking_check_sox_process_has_completed(self):
         if self.sox_process is None:
             return
         
-        self.sox_process.poll()
+        self._check_sox_return_code_no_wait()
         if self.sox_process.returncode is None:
             log.warn("Previous sox conversion has not terminated yet!"
                      " Waiting...")
             self.sox_process.wait()
-
-        if self.sox_process.returncode == 0:
-            log.info("Previous conversion successfully completed!")
-        else:
-            log.warn("Previous sox conversion FAILED!")
+            self._check_sox_return_code_no_wait()
     
-        # Log sox output
-        stdout = self.sox_process.stdout.read()
-        stderr = self.sox_process.stderr.read()
-        if stdout:
-            log.debug("sox stdout: {}".format(stdout))
-        if stderr:
-            log.debug("sox stderr: {}".format(stderr))
-        
 
     def terminate(self):
         log.info("Recorder shutdown.\n")
@@ -121,7 +136,7 @@ class Recorder(object):
         if self.sampler is not None:
             self.sampler.terminate()
         
-        self._check_sox_process_has_completed()
+        self._blocking_check_sox_process_has_completed()
                 
         logging.shutdown()
 
