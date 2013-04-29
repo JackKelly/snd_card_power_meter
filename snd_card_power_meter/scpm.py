@@ -655,7 +655,7 @@ def init_logger():
     log.setLevel(logging.DEBUG)
     
     # date formatting
-    datefmt = "%y-%m-%d %H:%M:%S"
+    datefmt = "%y-%m-%d %H:%M:%S %Z"
 
     # create console handler (ch) for stdout
     ch = logging.StreamHandler()
