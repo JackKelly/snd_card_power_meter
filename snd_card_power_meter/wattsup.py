@@ -3,8 +3,8 @@ Get data from a Watts Up meter over USB.
 
 Requirements:
 
-    - wattsup LinuxUtility on the path
-          Download from https://www.wattsupmeters.com/secure/support.php
+    - wattsup Linux Utility on the path
+          Download from https://github.com/pyrovski/watts-up
           
     - wattsup meter plugged into USB
 
