@@ -192,12 +192,21 @@ def calculate_calibrated_power(split_adc_data, adc_rms, calibration):
     data.frequency = get_frequency(voltage)    
     
     # Real power
-    inst_power = voltage * current # instantaneous power
-    data.real_power = inst_power.mean() * calibration.watts_per_adc_step
+    def calc_power(v, c):
+        inst_power = v * c # instantaneous power
+        real_power = inst_power.mean() * calibration.watts_per_adc_step
+        return real_power
+
+    data.real_power = calc_power(voltage, current)
     if data.real_power < 0:
         log.warn("real_power is NEGATIVE! Is the CT clamp on backwards?"
-                 " {:.3f}W".format(data.real_power))
-        data.real_power = 0
+                 " {:.3f}W. Reversing polarity of current...".format(data.real_power))
+        current = -current
+        data.real_power = calc_power(voltage, current)
+        if data.real_power < 0:
+            log.warn("real_power is still NEGATIVE!"
+                     " {:.3f}W.  Setting to zero".format(data.real_power))
+            data.real_power = 0
     
     # Apparent power
     data.volts_rms = adc_rms.adc_v_rms * calibration.volts_per_adc_step

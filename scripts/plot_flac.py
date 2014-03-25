@@ -59,8 +59,13 @@ def get_adc_data(wavfile):
                                        config.FRAMES_PER_BUFFER) * 
                                        config.RECORD_SECONDS))
     frames = []
+    
     for _ in range(n_reads_per_queue_item):
-        frames.append(wavfile.readframes(config.FRAMES_PER_BUFFER))
+        frame = wavfile.readframes(config.FRAMES_PER_BUFFER)
+        if frame:
+            frames.append(frame)
+        else:
+            break
         
     return Bunch(data=frames)
 
@@ -81,9 +86,9 @@ def setup_argparser():
     return args
 
 def main():
-    scpm.init_logger()
-    
     args = setup_argparser()
+
+    scpm.init_logger()
     
     wavfile = uncompress_and_load(args.input_file)
     samples_per_degree = (wavfile.getframerate() / config.MAINS_HZ) / 360
@@ -95,7 +100,8 @@ def main():
     split_adc_data = scpm.split_channels(adc_data)
     adc_rms = scpm.calculate_adc_rms(split_adc_data)
     voltage, current = scpm.convert_adc_to_numpy_float(split_adc_data)    
-    
+    print(len(voltage), len(current))
+
     if calibration is None:
         print("No calibration data loaded.")
     else:

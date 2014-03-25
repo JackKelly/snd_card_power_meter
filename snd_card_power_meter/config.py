@@ -45,7 +45,11 @@ DAT_FILENAME = DATA_DIR + '/mains-{:d}.dat'.format(int(round(time.time())))
 # Directory and prefix for FLAC files
 FLAC_DIR = "/flac"
 if not os.path.isdir(FLAC_DIR):
-    os.makedirs(FLAC_DIR)    
+    try:
+        os.makedirs(FLAC_DIR)
+    except OSError as e:
+        print("Failed to create", FLAC_DIR, file=sys.stderr)
+        FLAC_DIR = ""
 
 FLAC_FILENAME_PREFIX = FLAC_DIR + "/vi-" # short for "voltage and current"
 
