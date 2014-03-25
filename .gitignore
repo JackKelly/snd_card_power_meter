@@ -2,3 +2,4 @@
 Sound_card_power_meter.egg-info/
 .project
 *.pyc
+*.log
