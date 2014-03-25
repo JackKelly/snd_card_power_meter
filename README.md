@@ -1,10 +1,11 @@
-snd_card_electricity_meter
-==========================
+## snd_card_electricity_meter
 
 An electricity meter using a sound card to digitise signals from 
 current transformer probes and AC-AC adapters.
 
-installation
-============
+## Installation on Ubuntu
 
-Add snd_card_power_meter to your PYTHONPATH environment variable.
+```
+sudo apt-get install python-pyaudio
+sudo python setup.py develop
+```
