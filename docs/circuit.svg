@@ -14,7 +14,10 @@
    id="svg2"
    version="1.1"
    inkscape:version="0.48.4 r9939"
-   sodipodi:docname="circuit.svg">
+   sodipodi:docname="circuit.svg"
+   inkscape:export-filename="/home/dk3810/workspace/python/snd_card_power_meter/docs/circuit.png"
+   inkscape:export-xdpi="217.14449"
+   inkscape:export-ydpi="217.14449">
   <defs
      id="defs4">
     <marker
@@ -130,7 +133,7 @@
         <dc:format>image/svg+xml</dc:format>
         <dc:type
            rdf:resource="http://purl.org/dc/dcmitype/StillImage" />
-        <dc:title />
+        <dc:title></dc:title>
       </cc:Work>
     </rdf:RDF>
   </metadata>
