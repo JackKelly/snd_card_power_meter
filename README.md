@@ -9,3 +9,11 @@ current transformer probes and AC-AC adapters.
 sudo apt-get install python-pyaudio
 sudo python setup.py develop
 ```
+
+## Circuit
+
+![circuit diagram](https://raw.githubusercontent.com/JackKelly/snd_card_power_meter/master/docs/circuit.png)
+
+## More info
+
+Please see [the wiki](https://github.com/JackKelly/snd_card_power_meter/wiki).
