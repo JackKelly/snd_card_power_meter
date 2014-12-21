@@ -26,6 +26,8 @@ import time
 import logging.handlers
 log = logging.getLogger("scpm")
 import ConfigParser # docs: http://docs.python.org/2/library/configparser.html
+import seaborn as sns
+sns.set(style="white")
 try:
     import Queue as queue
 except ImportError:
@@ -254,31 +256,53 @@ def plot(voltage, current, calibration=None):
         largest = max(abs(ymin), abs(ymax))
         ax.set_yticks(np.linspace(-largest, largest, NUM_TICKS))
 
+    x = np.arange(0, len(voltage)/16, 1/16)
+
     # two scales code adapted from matplotlib.org/examples/api/two_scales.html
-    fig = plt.figure()
+    fig = plt.figure(figsize=_mm_to_inch([180, 100]))
     v_ax = fig.add_subplot(111) # v_ax = voltage axes
-    v_ax.plot(voltage, "b-")
+    v_lines, = v_ax.plot(x, voltage, "b-", label='Voltage', linewidth=1)
     center_yaxis(v_ax)    
-    v_ax.set_xlabel("time (samples)")
-    v_ax.set_title("Voltage and Current waveforms")
-    
+    v_ax.set_xlabel("Time (ms)")
+    v_ax.set_title("Mains voltage and current waveforms")
+    # plt.grid()
+
     # Make the y-axis label and tick labels match the line colour.
-    v_ax.set_ylabel("potential different ({:s})".format(v_unit), color="b")
+    v_ax.set_ylabel("Potential different ({:s})".format(v_unit), color="b")
     for tl in v_ax.get_yticklabels():
         tl.set_color("b")
     
     # The function twinx() give us access to a second plot that
-    # overlays the graph ax2 and shares the same X axis, but not the Y axis.     
+    # overlays the graph ax2 and shares the same X axis, but not the Y axis.
     i_ax = v_ax.twinx()
-    i_ax.plot(current, "g-")
+    i_lines, = i_ax.plot(x, current, "g-", label='Current', linewidth=1)
     center_yaxis(i_ax)
-    i_ax.set_ylabel("current ({:s})".format(i_unit), color="g")
+    i_ax.set_ylabel("Current ({:s})".format(i_unit), color="g")
     for tl in i_ax.get_yticklabels():
         tl.set_color("g")
 
-    plt.grid()
+    plt.legend(handles=[v_lines, i_lines], loc='upper left', fontsize='medium',
+               frameon=False)
+    plt.tight_layout()
+    for ax in [i_ax, v_ax]:
+        ax.xaxis.set_tick_params(direction='out', color='k', size=4)
+        ax.spines['top'].set_visible(False)
+        ax.spines['bottom'].set_linewidth(0.5)
+        ax.xaxis.set_ticks_position('bottom')
+        ax.set_xlim([0,40])
+    i_ax.spines['right'].set_color('g')
+    i_ax.spines['right'].set_linewidth(0.5)
+    v_ax.spines['right'].set_visible(False)
+    i_ax.yaxis.set_tick_params(direction='out', color='g', size=4)
+    i_ax.spines['left'].set_visible(False)
+    v_ax.spines['left'].set_color('b')
+    v_ax.spines['left'].set_linewidth(0.5)
+    v_ax.yaxis.set_tick_params(direction='out', color='b', size=4)
     plt.show()
+    return fig
     
+def _mm_to_inch(mms):
+    return [mm / 25.4 for mm in mms]
     
 def find_time(adc_data_queue, target_time):
     """
