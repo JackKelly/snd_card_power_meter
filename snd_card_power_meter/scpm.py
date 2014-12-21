@@ -23,6 +23,7 @@ import wave
 import sys, os
 import audioop # docs: http://docs.python.org/2/library/audioop.html
 import time
+from math import sqrt
 import logging.handlers
 log = logging.getLogger("scpm")
 import ConfigParser # docs: http://docs.python.org/2/library/configparser.html
@@ -235,6 +236,8 @@ def plot(voltage, current, calibration=None):
         - volts_per_adc_step (float)
     """
     import matplotlib.pyplot as plt
+    import matplotlib
+    from matplotlib.ticker import MultipleLocator, FormatStrFormatter, MaxNLocator
     
     if calibration is not None:
         print("volts_per_adc_step =", calibration.volts_per_adc_step)
@@ -258,13 +261,30 @@ def plot(voltage, current, calibration=None):
 
     x = np.arange(0, len(voltage)/16, 1/16)
 
+    fontsize = 8
+    params = {#'backend': 'ps',
+              'axes.labelsize': fontsize, # fontsize for x and y labels (was fontsize)
+              'axes.titlesize': fontsize,
+              'text.fontsize': fontsize, # was fontsize
+              'legend.fontsize': fontsize, # was fontsize
+              'xtick.labelsize': fontsize,
+              'ytick.labelsize': fontsize,
+              'font.family': 'Bitstream Vera Sans'
+    }
+
+    matplotlib.rcParams.update(params)
+
+
     # two scales code adapted from matplotlib.org/examples/api/two_scales.html
-    fig = plt.figure(figsize=_mm_to_inch([180, 100]))
+    fig_width = 88
+    golden_mean = (sqrt(5) - 1) / 2    # Aesthetic ratio
+    fig_height = fig_width * golden_mean
+    fig = plt.figure(figsize=_mm_to_inch([fig_width, fig_height]))
     v_ax = fig.add_subplot(111) # v_ax = voltage axes
-    v_lines, = v_ax.plot(x, voltage, "b-", label='Voltage', linewidth=1)
+    v_lines, = v_ax.plot(x, voltage, "b-", label='V', linewidth=1)
     center_yaxis(v_ax)    
     v_ax.set_xlabel("Time (ms)")
-    v_ax.set_title("Mains voltage and current waveforms")
+    # v_ax.set_title("Mains voltage and current")
     # plt.grid()
 
     # Make the y-axis label and tick labels match the line colour.
@@ -275,7 +295,7 @@ def plot(voltage, current, calibration=None):
     # The function twinx() give us access to a second plot that
     # overlays the graph ax2 and shares the same X axis, but not the Y axis.
     i_ax = v_ax.twinx()
-    i_lines, = i_ax.plot(x, current, "g-", label='Current', linewidth=1)
+    i_lines, = i_ax.plot(x, current, "g-", label='I', linewidth=1)
     center_yaxis(i_ax)
     i_ax.set_ylabel("Current ({:s})".format(i_unit), color="g")
     for tl in i_ax.get_yticklabels():
@@ -290,6 +310,9 @@ def plot(voltage, current, calibration=None):
         ax.spines['bottom'].set_linewidth(0.5)
         ax.xaxis.set_ticks_position('bottom')
         ax.set_xlim([0,40])
+        ax.yaxis.set_major_locator(MaxNLocator(nbins=5))
+        ax.xaxis.set_major_locator(MultipleLocator(10))
+    i_ax.yaxis.set_major_formatter(FormatStrFormatter("%5.1f"))
     i_ax.spines['right'].set_color('g')
     i_ax.spines['right'].set_linewidth(0.5)
     v_ax.spines['right'].set_visible(False)
