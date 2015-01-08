@@ -38,6 +38,10 @@ import config
 from bunch import Bunch
 
 
+BLUE = (0.2980392156862745, 0.4470588235294118, 0.6901960784313725)
+GREEN = (0.3333333333333333, 0.6588235294117647, 0.40784313725490196)
+
+
 def join_frames_and_widen(adc_data):
     """
     Args:
@@ -281,25 +285,25 @@ def plot(voltage, current, calibration=None):
     fig_height = fig_width * golden_mean
     fig = plt.figure(figsize=_mm_to_inch([fig_width, fig_height]))
     v_ax = fig.add_subplot(111) # v_ax = voltage axes
-    v_lines, = v_ax.plot(x, voltage, "b-", label='V', linewidth=1)
+    v_lines, = v_ax.plot(x, voltage, color=BLUE, linestyle="-", label='V', linewidth=1)
     center_yaxis(v_ax)    
     v_ax.set_xlabel("Time (ms)")
     # v_ax.set_title("Mains voltage and current")
     # plt.grid()
 
     # Make the y-axis label and tick labels match the line colour.
-    v_ax.set_ylabel("Potential different ({:s})".format(v_unit), color="b")
+    v_ax.set_ylabel("Potential different ({:s})".format(v_unit), color=BLUE)
     for tl in v_ax.get_yticklabels():
-        tl.set_color("b")
+        tl.set_color(BLUE)
     
     # The function twinx() give us access to a second plot that
     # overlays the graph ax2 and shares the same X axis, but not the Y axis.
     i_ax = v_ax.twinx()
-    i_lines, = i_ax.plot(x, current, "g-", label='I', linewidth=1)
+    i_lines, = i_ax.plot(x, current, color=GREEN, linestyle="-", label='I', linewidth=1)
     center_yaxis(i_ax)
-    i_ax.set_ylabel("Current ({:s})".format(i_unit), color="g")
+    i_ax.set_ylabel("Current ({:s})".format(i_unit), color=GREEN)
     for tl in i_ax.get_yticklabels():
-        tl.set_color("g")
+        tl.set_color(GREEN)
 
     plt.legend(handles=[v_lines, i_lines], loc='upper left', fontsize='medium',
                frameon=False)
@@ -313,14 +317,14 @@ def plot(voltage, current, calibration=None):
         ax.yaxis.set_major_locator(MaxNLocator(nbins=5))
         ax.xaxis.set_major_locator(MultipleLocator(10))
     i_ax.yaxis.set_major_formatter(FormatStrFormatter("%5.1f"))
-    i_ax.spines['right'].set_color('g')
+    i_ax.spines['right'].set_color(GREEN)
     i_ax.spines['right'].set_linewidth(0.5)
     v_ax.spines['right'].set_visible(False)
-    i_ax.yaxis.set_tick_params(direction='out', color='g', size=4)
+    i_ax.yaxis.set_tick_params(direction='out', color=GREEN, size=4)
     i_ax.spines['left'].set_visible(False)
-    v_ax.spines['left'].set_color('b')
+    v_ax.spines['left'].set_color(BLUE)
     v_ax.spines['left'].set_linewidth(0.5)
-    v_ax.yaxis.set_tick_params(direction='out', color='b', size=4)
+    v_ax.yaxis.set_tick_params(direction='out', color=BLUE, size=4)
     plt.show()
     return fig
     
