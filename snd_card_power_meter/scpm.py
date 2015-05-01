@@ -27,8 +27,8 @@ from math import sqrt
 import logging.handlers
 log = logging.getLogger("scpm")
 import ConfigParser # docs: http://docs.python.org/2/library/configparser.html
-import seaborn as sns
-sns.set(style="white")
+# import seaborn as sns
+# sns.set(style="white")
 try:
     import Queue as queue
 except ImportError:
