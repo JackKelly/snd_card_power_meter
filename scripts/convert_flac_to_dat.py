@@ -9,7 +9,8 @@ log = logging.getLogger("scpm")
 
 DESCRIPTION = """
 Takes a whole directory of FLAC/WAV files and converts them
-all to a single .DAT file.  Or can take a single file.
+all to a single .DAT file.  Or can take a single file 
+(which must include the suffix).
 
 Requires 'sox' (to uncompress the FLAC files and convert to 32-bit WAVs).
 """
